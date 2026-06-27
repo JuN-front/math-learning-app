@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", Meiryo, sans-serif;
+    color: #1a1f2e;
+    background: #f5f7fa;
+  }
+}
+
+:root {
+  --primary: #1a3a5c;
+  --primary-light: #2563a8;
+  --accent: #e8a020;
+  --surface: #f5f7fa;
+  --border: #dde1e8;
+  --text-main: #1a1f2e;
+  --text-muted: #6b7280;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+}
+
+.portal-header {
+  background: var(--primary);
+  color: white;
+}
+
+.card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+
+.card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+
+a.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  background: var(--primary-light);
+  color: white;
+  padding: 0.5rem 1.25rem;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: background 0.2s;
+  border: none;
+  cursor: pointer;
+}
+.btn-primary:hover { background: var(--primary); }
+
+.btn-accent {
+  display: inline-flex;
+  align-items: center;
+  background: var(--accent);
+  color: white;
+  padding: 0.5rem 1.25rem;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: opacity 0.2s;
+  border: none;
+  cursor: pointer;
+}
+.btn-accent:hover { opacity: 0.9; }
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.status-not-started { background: #e5e7eb; color: #6b7280; }
+.status-in-progress  { background: #dbeafe; color: #1d4ed8; }
+.status-completed    { background: #dcfce7; color: #15803d; }
+.status-locked       { background: #fef3c7; color: #92400e; }
+
+.progress-bar-track {
+  background: #e5e7eb;
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  background: linear-gradient(to right, var(--primary-light), var(--accent));
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fadeIn 0.25s ease forwards; }

@@ -1,0 +1,119 @@
+{
+  "users": [
+    {
+      "id": "admin-001",
+      "personal_id": "admin",
+      "username": "管理者",
+      "password": "$2b$10$UtnXjs/au9p5qAI4Gfz9lOAhBsfHIMPhQ973IW1WqPTYqbeJPnb.u",
+      "role": "admin",
+      "created_at": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "user-001",
+      "personal_id": "student01",
+      "username": "山田 太郎",
+      "password": "$2b$10$CXI.CEmhNu6j4niofudzO.6wwRApslbIzpuqwLE5Sq70aBONF.HJi",
+      "role": "user",
+      "created_at": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "user-002",
+      "personal_id": "student02",
+      "username": "鈴木 花子",
+      "password": "$2b$10$yIAiu3LiNoz36YuoLtLbvOGlN/yNPyzvz.LHkq142zXo.lfwRz4UW",
+      "role": "user",
+      "created_at": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "units": [
+    {
+      "id": "unit-001",
+      "title": "二次関数",
+      "description": "二次関数の基本的な性質と応用を学習します",
+      "order": 1,
+      "created_at": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "unit-002",
+      "title": "三角関数",
+      "description": "三角比と三角関数の基礎から応用まで学習します",
+      "order": 2,
+      "created_at": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "unit-003",
+      "title": "微分・積分",
+      "description": "微分と積分の概念と計算方法を学習します",
+      "order": 3,
+      "created_at": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "contents": [
+    {
+      "id": "content-001",
+      "unit_id": "unit-001",
+      "title": "二次関数とは",
+      "description": "二次関数の定義と基本的な形を学びます",
+      "order": 1,
+      "has_video": true,
+      "has_textbook": true,
+      "has_assignment": false,
+      "video_path": null,
+      "textbook_path": null,
+      "assignment_path": null,
+      "answer_path": null,
+      "lock_conditions": [],
+      "created_at": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "content-002",
+      "unit_id": "unit-001",
+      "title": "グラフの描き方",
+      "description": "頂点・軸・開口方向を理解してグラフを描きます",
+      "order": 2,
+      "has_video": true,
+      "has_textbook": true,
+      "has_assignment": true,
+      "video_path": null,
+      "textbook_path": null,
+      "assignment_path": null,
+      "answer_path": null,
+      "lock_conditions": ["content-001"],
+      "created_at": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "content-003",
+      "unit_id": "unit-001",
+      "title": "二次方程式との関係",
+      "description": "判別式と解の公式を使った問題演習",
+      "order": 3,
+      "has_video": false,
+      "has_textbook": true,
+      "has_assignment": true,
+      "video_path": null,
+      "textbook_path": null,
+      "assignment_path": null,
+      "answer_path": null,
+      "lock_conditions": ["content-001", "content-002"],
+      "created_at": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "content-004",
+      "unit_id": "unit-002",
+      "title": "三角比の定義",
+      "description": "sin・cos・tanの定義と基本的な値を学びます",
+      "order": 1,
+      "has_video": true,
+      "has_textbook": true,
+      "has_assignment": false,
+      "video_path": null,
+      "textbook_path": null,
+      "assignment_path": null,
+      "answer_path": null,
+      "lock_conditions": [],
+      "created_at": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "progress": [],
+  "assignments": []
+}
