@@ -32,24 +32,29 @@ const statusIcon = {
   completed: <CheckCircle size={16} className="text-green-500" />,
 };
 
-export default function UnitPage({ params }: { params: { id: string } }) {
+export default function UnitPage({ params }: { params: Promise<{ id: string }> }) {
   const { status } = useSession();
   const router = useRouter();
+  const [unitId, setUnitId] = useState<string>('');
   const [unit, setUnit] = useState<Unit | null>(null);
   const [contents, setContents] = useState<Content[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    params.then(({ id }) => setUnitId(id));
+  }, [params]);
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/login');
   }, [status, router]);
 
   useEffect(() => {
-    if (status === 'authenticated') {
-      fetch(`/api/units/${params.id}`)
+    if (status === 'authenticated' && unitId) {
+      fetch(`/api/units/${unitId}`)
         .then(r => r.json())
         .then(data => { setUnit(data.unit); setContents(data.contents); setLoading(false); });
     }
-  }, [status, params.id]);
+  }, [status, unitId]);
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
@@ -66,7 +71,6 @@ export default function UnitPage({ params }: { params: { id: string } }) {
     <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
       <Header />
       <main className="max-w-4xl mx-auto px-6 py-8">
-        {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-5">
           <Link href="/dashboard" className="hover:text-blue-600 flex items-center gap-1">
             <ChevronLeft size={14} /> トップ
@@ -75,7 +79,6 @@ export default function UnitPage({ params }: { params: { id: string } }) {
           <span className="text-gray-800 font-medium">{unit.title}</span>
         </div>
 
-        {/* Unit header */}
         <div className="card p-6 mb-6">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -97,7 +100,6 @@ export default function UnitPage({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        {/* Contents list */}
         <h2 className="font-bold text-gray-700 text-sm uppercase tracking-wide mb-3">コンテンツ一覧</h2>
         <div className="space-y-3">
           {contents.map((content, idx) => (
@@ -111,7 +113,6 @@ export default function UnitPage({ params }: { params: { id: string } }) {
                     {content.is_locked && <Lock size={14} className="text-amber-500 shrink-0" />}
                   </div>
                   <p className="text-sm text-gray-500 truncate">{content.description}</p>
-                  {/* Icons for content types */}
                   <div className="flex gap-2 mt-2">
                     {content.has_video && <span className="flex items-center gap-1 text-xs text-blue-500"><Play size={12} />動画</span>}
                     {content.has_textbook && <span className="flex items-center gap-1 text-xs text-purple-500"><FileText size={12} />テキスト</span>}
@@ -123,7 +124,7 @@ export default function UnitPage({ params }: { params: { id: string } }) {
                     {content.is_locked ? '🔒 ロック中' : statusLabel[content.status]}
                   </span>
                   {!content.is_locked && (
-                    <Link href={`/units/${params.id}/contents/${content.id}`} className="btn-primary text-sm">
+                    <Link href={`/units/${unitId}/contents/${content.id}`} className="btn-primary text-sm">
                       <ChevronRight size={16} />
                     </Link>
                   )}

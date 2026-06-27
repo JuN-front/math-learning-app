@@ -14,8 +14,8 @@ export async function GET() {
     include: { contents: true },
   });
 
-  const result = await Promise.all(units.map(async (unit) => {
-    const contentIds = unit.contents.map(c => c.id);
+  const result = await Promise.all(units.map(async (unit: any) => {
+    const contentIds = unit.contents.map((c: any) => c.id);
     const completedCount = await prisma.progress.count({
       where: {
         user_id: userId,

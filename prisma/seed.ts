@@ -1,12 +1,12 @@
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
+/* eslint-disable @typescript-eslint/no-require-imports */
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log('Seeding...');
 
-  // ユーザー作成
   const adminPass = await bcrypt.hash('admin123', 10);
   const s1Pass = await bcrypt.hash('student123', 10);
   const s2Pass = await bcrypt.hash('student456', 10);
@@ -27,7 +27,6 @@ async function main() {
     create: { personal_id: 'student02', username: '鈴木 花子', password: s2Pass, role: 'user' },
   });
 
-  // 単元作成
   const unit1 = await prisma.unit.upsert({
     where: { id: 'unit-seed-001' },
     update: {},
@@ -39,14 +38,13 @@ async function main() {
     create: { id: 'unit-seed-002', title: '三角関数', description: '三角比と三角関数の基礎から応用まで学習します', order: 2 },
   });
 
-  // コンテンツ作成
   const c1 = await prisma.content.upsert({
     where: { id: 'content-seed-001' },
     update: {},
     create: {
       id: 'content-seed-001', unit_id: unit1.id,
       title: '二次関数とは', description: '二次関数の定義と基本的な形を学びます',
-      order: 1, has_video: true, has_textbook: true, has_assignment: false,
+      order: 1, has_video: true, has_textbook: true,
     },
   });
   await prisma.content.upsert({
@@ -65,7 +63,7 @@ async function main() {
     create: {
       id: 'content-seed-003', unit_id: unit2.id,
       title: '三角比の定義', description: 'sin・cos・tanの定義と基本的な値を学びます',
-      order: 1, has_video: true, has_textbook: true, has_assignment: false,
+      order: 1, has_video: true, has_textbook: true,
     },
   });
 
