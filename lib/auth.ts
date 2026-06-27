@@ -1,7 +1,7 @@
 import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
-import { readDB } from './db';
+import { prisma } from './db';
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -14,8 +14,9 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.personal_id || !credentials?.password) return null;
 
-        const db = readDB();
-        const user = db.users.find(u => u.personal_id === credentials.personal_id);
+        const user = await prisma.user.findUnique({
+          where: { personal_id: credentials.personal_id },
+        });
         if (!user) return null;
 
         const isValid = await bcrypt.compare(credentials.password, user.password);
@@ -46,11 +47,7 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
-  pages: {
-    signIn: '/login',
-  },
-  session: {
-    strategy: 'jwt',
-  },
-  secret: process.env.NEXTAUTH_SECRET || 'math-learning-secret-key-2024',
+  pages: { signIn: '/login' },
+  session: { strategy: 'jwt' },
+  secret: process.env.NEXTAUTH_SECRET,
 };

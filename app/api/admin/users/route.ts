@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { readDB, writeDB, generateId } from '@/lib/db';
+import { prisma } from '@/lib/db';
 import bcrypt from 'bcryptjs';
 
 export async function GET() {
@@ -10,8 +10,11 @@ export async function GET() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const db = readDB();
-  const users = db.users.map(({ password, ...u }) => u);
+  const users = await prisma.user.findMany({
+    select: { id: true, personal_id: true, username: true, role: true, created_at: true },
+    orderBy: { created_at: 'asc' },
+  });
+
   return NextResponse.json(users);
 }
 
@@ -21,31 +24,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const body = await req.json();
-  const { username, personal_id, password, role } = body;
-
+  const { username, personal_id, password, role } = await req.json();
   if (!username || !personal_id || !password || !role) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
 
-  const db = readDB();
-  if (db.users.find(u => u.personal_id === personal_id)) {
-    return NextResponse.json({ error: 'ID already exists' }, { status: 409 });
-  }
+  const exists = await prisma.user.findUnique({ where: { personal_id } });
+  if (exists) return NextResponse.json({ error: 'ID already exists' }, { status: 409 });
 
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const newUser = {
-    id: `user-${generateId()}`,
-    personal_id,
-    username,
-    password: hashedPassword,
-    role: role as 'admin' | 'user',
-    created_at: new Date().toISOString(),
-  };
+  const user = await prisma.user.create({
+    data: { username, personal_id, password: await bcrypt.hash(password, 10), role },
+    select: { id: true, personal_id: true, username: true, role: true, created_at: true },
+  });
 
-  db.users.push(newUser);
-  writeDB(db);
-
-  const { password: _, ...userWithoutPassword } = newUser;
-  return NextResponse.json(userWithoutPassword, { status: 201 });
+  return NextResponse.json(user, { status: 201 });
 }

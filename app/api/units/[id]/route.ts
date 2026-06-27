@@ -1,61 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { readDB, writeDB } from '@/lib/db';
+import { prisma } from '@/lib/db';
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const db = readDB();
-  const unit = db.units.find(u => u.id === id);
+  const userId = (session.user as any).id as string;
+
+  const unit = await prisma.unit.findUnique({ where: { id: params.id } });
   if (!unit) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const userId = (session.user as any).id;
-  const contents = db.contents
-    .filter(c => c.unit_id === id)
-    .sort((a, b) => a.order - b.order)
-    .map(c => {
-      const prog = db.progress.find(p => p.user_id === userId && p.content_id === c.id);
-      const status = prog?.status || 'not_started';
-      const isLocked = c.lock_conditions.some(reqId => {
-        const reqProg = db.progress.find(p => p.user_id === userId && p.content_id === reqId);
-        return !reqProg || reqProg.status !== 'completed';
-      });
-      return { ...c, status, is_locked: isLocked, progress: prog || null };
+  const contents = await prisma.content.findMany({
+    where: { unit_id: params.id },
+    orderBy: { order: 'asc' },
+  });
+
+  const contentsWithStatus = await Promise.all(contents.map(async (c) => {
+    const prog = await prisma.progress.findUnique({
+      where: { user_id_content_id: { user_id: userId, content_id: c.id } },
     });
 
-  return NextResponse.json({ unit, contents });
+    // ロック判定
+    const isLocked = c.lock_conditions.length > 0 && (
+      await Promise.all(
+        c.lock_conditions.map(async (reqId) => {
+          const reqProg = await prisma.progress.findUnique({
+            where: { user_id_content_id: { user_id: userId, content_id: reqId } },
+          });
+          return !reqProg || reqProg.status !== 'completed';
+        })
+      )
+    ).some(Boolean);
+
+    return {
+      ...c,
+      status: prog?.status ?? 'not_started',
+      is_locked: isLocked,
+      progress: prog,
+    };
+  }));
+
+  return NextResponse.json({ unit, contents: contentsWithStatus });
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (!session || (session.user as any).role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   const body = await req.json();
-  const db = readDB();
-  const idx = db.units.findIndex(u => u.id === id);
-  if (idx === -1) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const unit = await prisma.unit.update({
+    where: { id: params.id },
+    data: { title: body.title, description: body.description },
+  });
 
-  db.units[idx] = { ...db.units[idx], ...body };
-  writeDB(db);
-  return NextResponse.json(db.units[idx]);
+  return NextResponse.json(unit);
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (!session || (session.user as any).role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const db = readDB();
-  db.units = db.units.filter(u => u.id !== id);
-  db.contents = db.contents.filter(c => c.unit_id !== id);
-  writeDB(db);
+  await prisma.unit.delete({ where: { id: params.id } });
   return NextResponse.json({ success: true });
 }

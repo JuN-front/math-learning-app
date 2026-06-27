@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { readDB, writeDB, generateId } from '@/lib/db';
+import { prisma } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -10,11 +10,12 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const unitId = searchParams.get('unit_id');
 
-  const db = readDB();
-  let contents = db.contents;
-  if (unitId) contents = contents.filter(c => c.unit_id === unitId);
+  const contents = await prisma.content.findMany({
+    where: unitId ? { unit_id: unitId } : undefined,
+    orderBy: { order: 'asc' },
+  });
 
-  return NextResponse.json(contents.sort((a, b) => a.order - b.order));
+  return NextResponse.json(contents);
 }
 
 export async function POST(req: NextRequest) {
@@ -24,29 +25,23 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const db = readDB();
-  const unitContents = db.contents.filter(c => c.unit_id === body.unit_id);
-  const maxOrder = unitContents.length > 0 ? Math.max(...unitContents.map(c => c.order)) : 0;
+  const maxOrder = await prisma.content.aggregate({
+    where: { unit_id: body.unit_id },
+    _max: { order: true },
+  });
 
-  const newContent = {
-    id: `content-${generateId()}`,
-    unit_id: body.unit_id,
-    title: body.title,
-    description: body.description || '',
-    order: maxOrder + 1,
-    has_video: body.has_video || false,
-    has_textbook: body.has_textbook || false,
-    has_assignment: body.has_assignment || false,
-    video_path: null,
-    textbook_path: null,
-    assignment_path: null,
-    answer_path: null,
-    lock_conditions: body.lock_conditions || [],
-    created_at: new Date().toISOString(),
-  };
+  const content = await prisma.content.create({
+    data: {
+      unit_id: body.unit_id,
+      title: body.title,
+      description: body.description || '',
+      order: (maxOrder._max.order ?? 0) + 1,
+      has_video: body.has_video ?? false,
+      has_textbook: body.has_textbook ?? false,
+      has_assignment: body.has_assignment ?? false,
+      lock_conditions: body.lock_conditions ?? [],
+    },
+  });
 
-  db.contents.push(newContent);
-  writeDB(db);
-
-  return NextResponse.json(newContent, { status: 201 });
+  return NextResponse.json(content, { status: 201 });
 }

@@ -1,54 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { readDB, writeDB, generateId } from '@/lib/db';
+import { prisma } from '@/lib/db';
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const userId = (session.user as any).id;
+  const userId = (session.user as any).id as string;
   const body = await req.json();
-  const db = readDB();
 
-  const content = db.contents.find(c => c.id === id);
+  const content = await prisma.content.findUnique({ where: { id: params.id } });
   if (!content) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  let prog = db.progress.find(p => p.user_id === userId && p.content_id === id);
+  // upsert で進捗を作成 or 更新
+  const existing = await prisma.progress.findUnique({
+    where: { user_id_content_id: { user_id: userId, content_id: params.id } },
+  });
 
-  if (!prog) {
-    prog = {
-      id: `prog-${generateId()}`,
-      user_id: userId,
-      content_id: id,
-      status: 'in_progress',
-      video_watched: false,
-      textbook_read: false,
-      assignment_submitted: false,
-      updated_at: new Date().toISOString(),
-    };
-    db.progress.push(prog);
-  }
+  const updatedData = {
+    video_watched: body.video_watched ?? existing?.video_watched ?? false,
+    textbook_read: body.textbook_read ?? existing?.textbook_read ?? false,
+    assignment_submitted: body.assignment_submitted ?? existing?.assignment_submitted ?? false,
+  };
 
-  if (body.video_watched !== undefined) prog.video_watched = body.video_watched;
-  if (body.textbook_read !== undefined) prog.textbook_read = body.textbook_read;
-  if (body.assignment_submitted !== undefined) prog.assignment_submitted = body.assignment_submitted;
-  prog.updated_at = new Date().toISOString();
-
+  // 完了判定
   const needsVideo = content.has_video && content.video_path;
   const needsTextbook = content.has_textbook && content.textbook_path;
   const needsAssignment = content.has_assignment;
 
-  const videoOk = !needsVideo || prog.video_watched;
-  const textbookOk = !needsTextbook || prog.textbook_read;
-  const assignmentOk = !needsAssignment || prog.assignment_submitted;
+  const videoOk = !needsVideo || updatedData.video_watched;
+  const textbookOk = !needsTextbook || updatedData.textbook_read;
+  const assignmentOk = !needsAssignment || updatedData.assignment_submitted;
+  const status = videoOk && textbookOk && assignmentOk ? 'completed' : 'in_progress';
 
-  prog.status = (videoOk && textbookOk && assignmentOk) ? 'completed' : 'in_progress';
+  const progress = await prisma.progress.upsert({
+    where: { user_id_content_id: { user_id: userId, content_id: params.id } },
+    create: { user_id: userId, content_id: params.id, status, ...updatedData },
+    update: { status, ...updatedData },
+  });
 
-  const idx = db.progress.findIndex(p => p.id === prog!.id);
-  if (idx >= 0) db.progress[idx] = prog;
-
-  writeDB(db);
-  return NextResponse.json(prog);
+  return NextResponse.json(progress);
 }
