@@ -12,7 +12,7 @@ export default function Header() {
   return (
     <header style={{ background: '#0f1c2e', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 28px' }}>
       <Link href="/dashboard" style={{ textDecoration: 'none' }}>
-        <span style={{ fontSize: 16, fontWeight: 600, color: '#e8edf4', letterSpacing: '-0.01em' }}>
+        <span style={{ fontSize: 24, fontWeight: 600, color: '#e8edf4', letterSpacing: '-0.01em' }}>
           Math<span style={{ color: '#378ADD' }}>Lab</span>
         </span>
       </Link>
