@@ -16,6 +16,8 @@ interface ContentDetail {
   assignment: { id: string; file_path: string; filename: string; submitted_at: string; } | null;
 }
 
+const f = { fontFamily: '"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP",Meiryo,sans-serif' };
+
 export default function ContentPage({ params }: { params: Promise<{ id: string; contentId: string }> }) {
   const { status } = useSession();
   const router = useRouter();
@@ -26,27 +28,19 @@ export default function ContentPage({ params }: { params: Promise<{ id: string; 
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState('');
 
-  useEffect(() => {
-    params.then(({ id, contentId }) => { setUnitId(id); setContentId(contentId); });
-  }, [params]);
-
-  useEffect(() => {
-    if (status === 'unauthenticated') router.push('/login');
-  }, [status, router]);
+  useEffect(() => { params.then(({ id, contentId }) => { setUnitId(id); setContentId(contentId); }); }, [params]);
+  useEffect(() => { if (status === 'unauthenticated') router.push('/login'); }, [status, router]);
 
   const fetchContent = () => {
     if (!contentId) return;
     fetch(`/api/contents/${contentId}`).then(r => r.json()).then(data => { setContent(data); setLoading(false); });
   };
 
-  useEffect(() => {
-    if (status === 'authenticated' && contentId) fetchContent();
-  }, [status, contentId]);
+  useEffect(() => { if (status === 'authenticated' && contentId) fetchContent(); }, [status, contentId]);
 
   const markProgress = async (field: string) => {
     await fetch(`/api/contents/${contentId}/progress`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [field]: true }),
     });
     fetchContent();
@@ -70,145 +64,216 @@ export default function ContentPage({ params }: { params: Promise<{ id: string; 
     fetchContent();
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="text-gray-400">読み込み中...</div></div>;
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f7fa' }}>
+      <div style={{ color: '#9ca3af', fontSize: 14 }}>読み込み中...</div>
+    </div>
+  );
   if (!content) return null;
 
   if (content.is_locked) {
     return (
-      <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
+      <div style={{ minHeight: '100vh', background: '#f5f7fa', ...f }}>
         <Header />
-        <main className="max-w-4xl mx-auto px-6 py-8 text-center">
-          <div className="card p-12 mt-8">
-            <Lock size={48} className="mx-auto mb-4 text-amber-400" />
-            <h2 className="text-xl font-bold text-gray-800 mb-2">このコンテンツはロックされています</h2>
-            <p className="text-gray-500 mb-6">前のコンテンツを完了してからアクセスできます</p>
-            <Link href={`/units/${unitId}`} className="btn-primary inline-flex items-center gap-2">
-              <ChevronLeft size={16} /> 単元ページに戻る
+        <div style={{ maxWidth: 760, margin: '60px auto', padding: '0 28px', textAlign: 'center' }}>
+          <div style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 16, padding: 48 }}>
+            <Lock size={40} style={{ color: '#fbbf24', marginBottom: 16 }} />
+            <h2 style={{ fontSize: 18, fontWeight: 600, color: '#111827', marginBottom: 8 }}>このコンテンツはロックされています</h2>
+            <p style={{ fontSize: 13, color: '#9ca3af', marginBottom: 24 }}>前のコンテンツを完了してからアクセスできます</p>
+            <Link href={`/units/${unitId}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 18px', borderRadius: 8, background: '#0f1c2e', color: '#e8edf4', fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>
+              <ChevronLeft size={14} /> 単元ページに戻る
             </Link>
           </div>
-        </main>
+        </div>
       </div>
     );
   }
 
   const prog = content.progress;
+  const isCompleted = prog?.status === 'completed';
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
+    <div style={{ minHeight: '100vh', background: '#f5f7fa', ...f }}>
       <Header />
-      <main className="max-w-4xl mx-auto px-6 py-8">
-        <div className="flex items-center gap-2 text-sm text-gray-500 mb-5">
-          <Link href="/dashboard" className="hover:text-blue-600">トップ</Link>
-          <span>/</span>
-          <Link href={`/units/${unitId}`} className="hover:text-blue-600 flex items-center gap-1"><ChevronLeft size={14} />単元</Link>
-          <span>/</span>
-          <span className="text-gray-800 font-medium">{content.title}</span>
+
+      {/* Breadcrumb */}
+      <div style={{ background: '#fff', borderBottom: '0.5px solid #e5e7eb', padding: '12px 28px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#9ca3af' }}>
+        <Link href="/dashboard" style={{ color: '#378ADD', textDecoration: 'none' }}>トップ</Link>
+        <span style={{ color: '#d1d5db' }}>/</span>
+        <Link href={`/units/${unitId}`} style={{ color: '#378ADD', textDecoration: 'none' }}>単元</Link>
+        <span style={{ color: '#d1d5db' }}>/</span>
+        <span style={{ color: '#374151', fontWeight: 500 }}>{content.title}</span>
+      </div>
+
+      {/* Hero */}
+      <div style={{ background: '#fff', borderBottom: '0.5px solid #e5e7eb', padding: '24px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 600, color: '#111827', marginBottom: 6 }}>{content.title}</h1>
+          <p style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6 }}>{content.description}</p>
         </div>
+        {isCompleted && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 99, background: '#dcfce7', color: '#15803d', fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
+            <CheckCircle size={13} /> 完了
+          </span>
+        )}
+      </div>
 
-        <div className="card p-6 mb-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-bold text-gray-900 mb-1">{content.title}</h1>
-              <p className="text-gray-500 text-sm">{content.description}</p>
+      <div style={{ padding: '24px 28px', maxWidth: 760 }}>
+
+        {/* 学習コンテンツ */}
+        {(content.has_video || content.has_textbook) && (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              学習コンテンツ <div style={{ flex: 1, height: '0.5px', background: '#e5e7eb' }} />
             </div>
-            {prog?.status === 'completed' && (
-              <div className="flex items-center gap-1.5 text-green-600 text-sm font-semibold shrink-0">
-                <CheckCircle size={18} /> 完了
-              </div>
-            )}
-          </div>
-        </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
 
-        <div className="space-y-4">
-          {content.has_video && (
-            <div className="card p-5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="bg-blue-100 rounded-lg p-2.5"><Play size={20} className="text-blue-600" /></div>
-                  <div>
-                    <div className="font-semibold text-gray-900">学習動画</div>
-                    <div className="text-sm text-gray-500">{prog?.video_watched ? '視聴済み ✓' : '未視聴'}</div>
+              {content.has_video && (
+                <div style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Play size={18} />
                   </div>
-                </div>
-                {content.video_path ? (
-                  <Link href={`/units/${unitId}/contents/${contentId}/video`} onClick={() => markProgress('video_watched')} className="btn-primary text-sm flex items-center gap-2">
-                    <Play size={14} /> 動画を視聴
-                  </Link>
-                ) : <span className="text-sm text-gray-400">動画未アップロード</span>}
-              </div>
-            </div>
-          )}
-
-          {content.has_textbook && (
-            <div className="card p-5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="bg-purple-100 rounded-lg p-2.5"><FileText size={20} className="text-purple-600" /></div>
-                  <div>
-                    <div className="font-semibold text-gray-900">学習テキスト</div>
-                    <div className="text-sm text-gray-500">{prog?.textbook_read ? '閲覧済み ✓' : '未閲覧'}</div>
-                  </div>
-                </div>
-                {content.textbook_path ? (
-                  <Link href={`/units/${unitId}/contents/${contentId}/pdf?type=textbook`} onClick={() => markProgress('textbook_read')} className="btn-primary text-sm flex items-center gap-2">
-                    <FileText size={14} /> テキストを閲覧
-                  </Link>
-                ) : <span className="text-sm text-gray-400">テキスト未アップロード</span>}
-              </div>
-            </div>
-          )}
-
-          {content.has_assignment && (
-            <div className="card p-5">
-              <div className="flex items-start gap-3">
-                <div className="bg-orange-100 rounded-lg p-2.5 shrink-0"><Upload size={20} className="text-orange-600" /></div>
-                <div className="flex-1">
-                  <div className="font-semibold text-gray-900 mb-1">課題提出</div>
-                  {content.assignment_path && (
-                    <div className="mb-3">
-                      <Link href={`/units/${unitId}/contents/${contentId}/pdf?type=assignment`} className="text-sm text-blue-600 hover:underline flex items-center gap-1">
-                        <FileText size={14} /> 課題用テキストを確認
-                      </Link>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 3 }}>学習動画</div>
+                    <div style={{ fontSize: 12, color: prog?.video_watched ? '#16a34a' : '#9ca3af' }}>
+                      {prog?.video_watched ? '✓ 視聴済み' : '未視聴'}
                     </div>
-                  )}
-                  {content.assignment && (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-sm font-semibold text-green-700">提出済み</div>
-                          <div className="text-xs text-green-600">{content.assignment.filename}</div>
-                          <div className="text-xs text-gray-400">{new Date(content.assignment.submitted_at).toLocaleString('ja-JP')}</div>
-                        </div>
-                        <button onClick={handleDeleteAssignment} className="text-xs text-red-500 hover:text-red-700 border border-red-200 px-2 py-1 rounded">削除</button>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                    {prog?.video_watched && (
+                      <div style={{ width: 20, height: 20, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <CheckCircle size={12} />
+                      </div>
+                    )}
+                    {content.video_path ? (
+                      <Link href={`/units/${unitId}/contents/${contentId}/video`} onClick={() => markProgress('video_watched')}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 8, background: prog?.video_watched ? '#f3f4f6' : '#0f1c2e', color: prog?.video_watched ? '#374151' : '#e8edf4', fontSize: 13, fontWeight: 500, textDecoration: 'none', border: prog?.video_watched ? '0.5px solid #e5e7eb' : 'none' }}>
+                        {prog?.video_watched ? '見直す →' : '動画を視聴 →'}
+                      </Link>
+                    ) : (
+                      <span style={{ fontSize: 12, color: '#d1d5db' }}>未アップロード</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {content.has_textbook && (
+                <div style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: '#faf5ff', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <FileText size={18} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 3 }}>学習テキスト</div>
+                    <div style={{ fontSize: 12, color: prog?.textbook_read ? '#16a34a' : '#9ca3af' }}>
+                      {prog?.textbook_read ? '✓ 閲覧済み' : '未閲覧'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                    {prog?.textbook_read && (
+                      <div style={{ width: 20, height: 20, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <CheckCircle size={12} />
+                      </div>
+                    )}
+                    {content.textbook_path ? (
+                      <Link href={`/units/${unitId}/contents/${contentId}/pdf?type=textbook`} onClick={() => markProgress('textbook_read')}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 8, background: prog?.textbook_read ? '#f3f4f6' : '#0f1c2e', color: prog?.textbook_read ? '#374151' : '#e8edf4', fontSize: 13, fontWeight: 500, textDecoration: 'none', border: prog?.textbook_read ? '0.5px solid #e5e7eb' : 'none' }}>
+                        {prog?.textbook_read ? '見直す →' : 'テキストを閲覧 →'}
+                      </Link>
+                    ) : (
+                      <span style={{ fontSize: 12, color: '#d1d5db' }}>未アップロード</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* 課題提出 */}
+        {content.has_assignment && (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              課題提出 <div style={{ flex: 1, height: '0.5px', background: '#e5e7eb' }} />
+            </div>
+            <div style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, padding: '16px 20px', marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: content.assignment_path || content.assignment ? 16 : 0 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: '#fff7ed', color: '#c2410c', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Upload size={18} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 3 }}>課題ファイルの提出</div>
+                  <div style={{ fontSize: 12, color: prog?.assignment_submitted ? '#16a34a' : '#9ca3af' }}>
+                    {prog?.assignment_submitted ? '✓ 提出済み' : '未提出'}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {/* 課題PDF */}
+                {content.assignment_path && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#faf5ff', border: '0.5px solid #e9d5ff', borderRadius: 8 }}>
+                    <span style={{ fontSize: 13, color: '#7c3aed', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <FileText size={14} /> 課題テキストを確認
+                    </span>
+                    <Link href={`/units/${unitId}/contents/${contentId}/pdf?type=assignment`}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 8, background: '#f3f4f6', color: '#374151', fontSize: 12, fontWeight: 500, textDecoration: 'none', border: '0.5px solid #e5e7eb' }}>
+                      開く →
+                    </Link>
+                  </div>
+                )}
+
+                {/* 提出済みファイル */}
+                {content.assignment && (
+                  <div style={{ background: '#f0fdf4', border: '0.5px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: '#15803d', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        📎 {content.assignment.filename}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                        {new Date(content.assignment.submitted_at).toLocaleString('ja-JP')} 提出
                       </div>
                     </div>
-                  )}
-                  {uploadError && <div className="flex items-center gap-2 text-red-600 text-sm mb-2"><AlertCircle size={14} />{uploadError}</div>}
-                  <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition">
-                    <Upload size={14} />
-                    {content.assignment ? '再提出する' : 'ファイルを選択してアップロード'}
-                    <input type="file" className="hidden" onChange={handleAssignmentUpload} disabled={uploadLoading} />
-                  </label>
-                  {uploadLoading && <span className="text-sm text-gray-400 ml-2">アップロード中...</span>}
-                  {content.answer_path && prog?.assignment_submitted && (
-                    <div className="mt-3">
-                      <Link href={`/units/${unitId}/contents/${contentId}/pdf?type=answer`} className="text-sm text-green-600 hover:underline flex items-center gap-1">
-                        <FileText size={14} /> 解答を確認
-                      </Link>
-                    </div>
-                  )}
-                </div>
+                    <button onClick={handleDeleteAssignment} style={{ fontSize: 12, color: '#ef4444', background: 'none', border: '0.5px solid #fecaca', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      削除
+                    </button>
+                  </div>
+                )}
+
+                {/* エラー */}
+                {uploadError && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', background: '#fef2f2', border: '0.5px solid #fecaca', borderRadius: 8, fontSize: 12, color: '#dc2626' }}>
+                    <AlertCircle size={13} /> {uploadError}
+                  </div>
+                )}
+
+                {/* アップロードボタン */}
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, background: '#f3f4f6', color: uploadLoading ? '#9ca3af' : '#374151', border: '0.5px solid #e5e7eb', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+                  <Upload size={14} />
+                  {uploadLoading ? 'アップロード中...' : content.assignment ? '再提出する' : 'ファイルを選択して提出'}
+                  <input type="file" style={{ display: 'none' }} onChange={handleAssignmentUpload} disabled={uploadLoading} />
+                </label>
+
+                {/* 解答（提出後に表示） */}
+                {content.answer_path && prog?.assignment_submitted && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f0fdf4', border: '0.5px solid #bbf7d0', borderRadius: 8 }}>
+                    <span style={{ fontSize: 13, color: '#16a34a', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <CheckCircle size={14} /> 解答を確認する
+                    </span>
+                    <Link href={`/units/${unitId}/contents/${contentId}/pdf?type=answer`}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 8, background: '#f3f4f6', color: '#374151', fontSize: 12, fontWeight: 500, textDecoration: 'none', border: '0.5px solid #e5e7eb' }}>
+                      開く →
+                    </Link>
+                  </div>
+                )}
               </div>
             </div>
-          )}
-        </div>
+          </>
+        )}
 
-        <div className="mt-8">
-          <Link href={`/units/${unitId}`} className="text-sm text-blue-600 hover:underline flex items-center gap-1">
-            <ChevronLeft size={14} /> 単元ページに戻る
-          </Link>
-        </div>
-      </main>
+        <Link href={`/units/${unitId}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#378ADD', textDecoration: 'none', marginTop: 8 }}>
+          <ChevronLeft size={14} /> 単元ページに戻る
+        </Link>
+      </div>
     </div>
   );
 }
