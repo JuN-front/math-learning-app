@@ -48,3 +48,4 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   await prisma.content.delete({ where: { id } });
 
   return NextResponse.json({ success: true });
+}
