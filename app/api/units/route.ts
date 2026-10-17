@@ -7,6 +7,8 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const userId = session.user.id;
+
   const units = await prisma.unit.findMany({
     include: {
       contents: {
@@ -17,7 +19,20 @@ export async function GET() {
     orderBy: { order: 'asc' },
   });
 
-  return NextResponse.json(units);
+  // 進捗を取得
+  const progresses = await prisma.progress.findMany({
+    where: { user_id: userId },
+  });
+  const progressMap = new Map(progresses.map(p => [p.content_id, p.status]));
+
+  // total_contents / completed_contents を付与
+  const unitsWithProgress = units.map(unit => {
+    const total = unit.contents.length;
+    const completed = unit.contents.filter(c => progressMap.get(c.id) === 'completed').length;
+    return { ...unit, total_contents: total, completed_contents: completed };
+  });
+
+  return NextResponse.json(unitsWithProgress);
 }
 
 export async function POST(request: NextRequest) {
