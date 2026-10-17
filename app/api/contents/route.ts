@@ -3,45 +3,41 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
-export async function GET(req: NextRequest) {
+export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { searchParams } = new URL(req.url);
-  const unitId = searchParams.get('unit_id');
+  const { searchParams } = new URL(request.url);
+  const unitId = searchParams.get('unitId');
+  if (!unitId) return NextResponse.json({ error: 'unitId required' }, { status: 400 });
 
   const contents = await prisma.content.findMany({
-    where: unitId ? { unit_id: unitId } : undefined,
+    where: { unit_id: unitId },
+    include: { items: { orderBy: { order: 'asc' } } },
     orderBy: { order: 'asc' },
   });
 
   return NextResponse.json(contents);
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user as any).role !== 'admin') {
+  if (!session || session.user.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const body = await req.json();
-  const maxOrder = await prisma.content.aggregate({
-    where: { unit_id: body.unit_id },
-    _max: { order: true },
-  });
+  const { unit_id, title, description, order, lock_conditions } = await request.json();
 
   const content = await prisma.content.create({
     data: {
-      unit_id: body.unit_id,
-      title: body.title,
-      description: body.description || '',
-      order: (maxOrder._max.order ?? 0) + 1,
-      has_video: body.has_video ?? false,
-      has_textbook: body.has_textbook ?? false,
-      has_assignment: body.has_assignment ?? false,
-      lock_conditions: body.lock_conditions ?? [],
+      unit_id,
+      title,
+      description: description ?? '',
+      order: order ?? 0,
+      lock_conditions: lock_conditions ?? [],
     },
+    include: { items: true },
   });
 
-  return NextResponse.json(content, { status: 201 });
+  return NextResponse.json(content);
 }

@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs';
 
 export async function GET() {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user as any).role !== 'admin') {
+  if (!session || session.user.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -18,24 +18,24 @@ export async function GET() {
   return NextResponse.json(users);
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user as any).role !== 'admin') {
+  if (!session || session.user.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const { username, personal_id, password, role } = await req.json();
-  if (!username || !personal_id || !password || !role) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+  const { personal_id, username, password, role } = await request.json();
+
+  const existing = await prisma.user.findUnique({ where: { personal_id } });
+  if (existing) {
+    return NextResponse.json({ error: 'このIDは既に使用されています' }, { status: 400 });
   }
 
-  const exists = await prisma.user.findUnique({ where: { personal_id } });
-  if (exists) return NextResponse.json({ error: 'ID already exists' }, { status: 409 });
-
+  const hashed = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
-    data: { username, personal_id, password: await bcrypt.hash(password, 10), role },
+    data: { personal_id, username, password: hashed, role: role ?? 'user' },
     select: { id: true, personal_id: true, username: true, role: true, created_at: true },
   });
 
-  return NextResponse.json(user, { status: 201 });
+  return NextResponse.json(user);
 }

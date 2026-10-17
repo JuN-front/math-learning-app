@@ -7,49 +7,31 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const userId = (session.user as any).id as string;
-
   const units = await prisma.unit.findMany({
+    include: {
+      contents: {
+        include: { items: { orderBy: { order: 'asc' } } },
+        orderBy: { order: 'asc' },
+      },
+    },
     orderBy: { order: 'asc' },
-    include: { contents: true },
   });
 
-  const result = await Promise.all(units.map(async (unit: any) => {
-    const contentIds = unit.contents.map((c: any) => c.id);
-    const completedCount = await prisma.progress.count({
-      where: {
-        user_id: userId,
-        content_id: { in: contentIds },
-        status: 'completed',
-      },
-    });
-    return {
-      ...unit,
-      contents: undefined,
-      total_contents: unit.contents.length,
-      completed_contents: completedCount,
-    };
-  }));
-
-  return NextResponse.json(result);
+  return NextResponse.json(units);
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user as any).role !== 'admin') {
+  if (!session || session.user.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const body = await req.json();
-  const maxOrder = await prisma.unit.aggregate({ _max: { order: true } });
+  const { title, description, order } = await request.json();
 
   const unit = await prisma.unit.create({
-    data: {
-      title: body.title,
-      description: body.description || '',
-      order: (maxOrder._max.order ?? 0) + 1,
-    },
+    data: { title, description: description ?? '', order: order ?? 0 },
+    include: { contents: true },
   });
 
-  return NextResponse.json(unit, { status: 201 });
+  return NextResponse.json(unit);
 }
