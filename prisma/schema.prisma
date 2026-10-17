@@ -16,7 +16,7 @@ model User {
   created_at  DateTime @default(now())
 
   progress    Progress[]
-  assignments Assignment[]
+  assignments ItemSubmission[]
 }
 
 model Unit {
@@ -35,30 +35,35 @@ model Content {
   title           String
   description     String   @default("")
   order           Int
-  has_video       Boolean  @default(false)
-  has_textbook    Boolean  @default(false)
-  has_assignment  Boolean  @default(false)
-  video_path      String?
-  textbook_path   String?
-  assignment_path String?
-  answer_path     String?
   lock_conditions String[] @default([])
   created_at      DateTime @default(now())
 
-  unit        Unit         @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+  unit        Unit            @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+  items       ContentItem[]
   progress    Progress[]
-  assignments Assignment[]
+  submissions ItemSubmission[]
+}
+
+model ContentItem {
+  id         String   @id @default(cuid())
+  content_id String
+  type       String   // 'video' | 'pdf' | 'link'
+  label      String   // '学習用' | '課題用' | '解答用' | '参考資料'
+  file_path  String?
+  url        String?
+  order      Int      @default(0)
+  created_at DateTime @default(now())
+
+  content     Content         @relation(fields: [content_id], references: [id], onDelete: Cascade)
+  submissions ItemSubmission[]
 }
 
 model Progress {
-  id                   String   @id @default(cuid())
-  user_id              String
-  content_id           String
-  status               String   @default("not_started")
-  video_watched        Boolean  @default(false)
-  textbook_read        Boolean  @default(false)
-  assignment_submitted Boolean  @default(false)
-  updated_at           DateTime @updatedAt
+  id         String   @id @default(cuid())
+  user_id    String
+  content_id String
+  status     String   @default("not_started")
+  updated_at DateTime @updatedAt
 
   user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
   content Content @relation(fields: [content_id], references: [id], onDelete: Cascade)
@@ -66,16 +71,18 @@ model Progress {
   @@unique([user_id, content_id])
 }
 
-model Assignment {
+model ItemSubmission {
   id           String   @id @default(cuid())
   user_id      String
   content_id   String
+  item_id      String
   file_path    String
   filename     String
   submitted_at DateTime @default(now())
 
-  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  content Content @relation(fields: [content_id], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  content Content     @relation(fields: [content_id], references: [id], onDelete: Cascade)
+  item    ContentItem @relation(fields: [item_id], references: [id], onDelete: Cascade)
 
-  @@unique([user_id, content_id])
+  @@unique([user_id, item_id])
 }
