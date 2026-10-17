@@ -6,17 +6,24 @@ import Link from 'next/link';
 import Header from '@/components/Header';
 import { ChevronLeft, Play, FileText, Upload, CheckCircle, Lock } from 'lucide-react';
 
+interface ContentItem {
+  id: string;
+  type: string;
+  label: string;
+  file_path?: string | null;
+  url?: string | null;
+  order: number;
+}
+
 interface Content {
   id: string;
   title: string;
   description: string;
   order: number;
-  has_video: boolean;
-  has_textbook: boolean;
-  has_assignment: boolean;
+  lock_conditions: string[];
+  items: ContentItem[];
   status: 'not_started' | 'in_progress' | 'completed';
   is_locked: boolean;
-  lock_conditions: string[];
 }
 
 interface Unit {
@@ -26,9 +33,9 @@ interface Unit {
 }
 
 const statusConfig = {
-  not_started: { label: '未着手',  badge: { background: '#f3f4f6', color: '#6b7280' } },
-  in_progress:  { label: '学習中',  badge: { background: '#dbeafe', color: '#1d4ed8' } },
-  completed:    { label: '完了',    badge: { background: '#dcfce7', color: '#15803d' } },
+  not_started: { label: '未着手', badge: { background: '#f3f4f6', color: '#6b7280' } },
+  in_progress:  { label: '学習中', badge: { background: '#dbeafe', color: '#1d4ed8' } },
+  completed:    { label: '完了',   badge: { background: '#dcfce7', color: '#15803d' } },
 };
 
 export default function UnitPage({ params }: { params: Promise<{ id: string }> }) {
@@ -43,11 +50,25 @@ export default function UnitPage({ params }: { params: Promise<{ id: string }> }
   useEffect(() => { if (status === 'unauthenticated') router.push('/login'); }, [status, router]);
 
   useEffect(() => {
-    if (status === 'authenticated' && unitId) {
-      fetch(`/api/units/${unitId}`)
-        .then(r => r.json())
-        .then(data => { setUnit(data.unit); setContents(data.contents); setLoading(false); });
-    }
+    if (status !== 'authenticated' || !unitId) return;
+
+    Promise.all([
+      fetch(`/api/units/${unitId}`).then(r => r.json()),
+      fetch(`/api/contents?unitId=${unitId}`).then(r => r.json()),
+      fetch(`/api/contents/progress-all?unitId=${unitId}`).then(r => r.json()).catch(() => ({})),
+    ]).then(([unitData, contentsData, progressData]) => {
+      setUnit(unitData);
+
+      // ロック判定＋進捗付与
+      const progressMap: Record<string, string> = progressData ?? {};
+      const enriched = (contentsData as Content[]).map((c, _i, arr) => {
+        const locked = c.lock_conditions.length > 0 &&
+          c.lock_conditions.some(depId => progressMap[depId] !== 'completed');
+        return { ...c, status: (progressMap[c.id] as Content['status']) ?? 'not_started', is_locked: locked };
+      });
+      setContents(enriched);
+      setLoading(false);
+    });
   }, [status, unitId]);
 
   if (loading) return (
@@ -59,10 +80,8 @@ export default function UnitPage({ params }: { params: Promise<{ id: string }> }
 
   const completed = contents.filter(c => c.status === 'completed').length;
   const pct = contents.length > 0 ? Math.round((completed / contents.length) * 100) : 0;
-
   const f = { fontFamily: '"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP",Meiryo,sans-serif' };
 
-  // ロックされたコンテンツの「条件となるコンテンツ名」を取得
   const getLockedByTitle = (content: Content) => {
     if (!content.is_locked || content.lock_conditions.length === 0) return null;
     const dep = contents.find(c => content.lock_conditions.includes(c.id));
@@ -114,6 +133,9 @@ export default function UnitPage({ params }: { params: Promise<{ id: string }> }
             const isLocked = content.is_locked;
             const lockedByTitle = getLockedByTitle(content);
             const sc = statusConfig[content.status];
+            const hasVideo = content.items.some(i => i.type === 'video');
+            const hasPdf = content.items.some(i => i.type === 'pdf' && i.label !== '課題用' && i.label !== '解答用');
+            const hasAssignment = content.items.some(i => i.label === '課題用');
 
             return (
               <div key={content.id} style={{ background: isLocked ? '#f9fafb' : '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'flex-start', gap: 16, opacity: isLocked ? 0.85 : 1 }}>
@@ -140,17 +162,17 @@ export default function UnitPage({ params }: { params: Promise<{ id: string }> }
 
                   {/* タイプボタン */}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {content.has_video && (
+                    {hasVideo && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500, background: '#eff6ff', border: '0.5px solid #bfdbfe', color: '#2563eb', opacity: isLocked ? 0.4 : 1 }}>
                         <Play size={11} /> 動画
                       </span>
                     )}
-                    {content.has_textbook && (
+                    {hasPdf && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500, background: '#faf5ff', border: '0.5px solid #e9d5ff', color: '#7c3aed', opacity: isLocked ? 0.4 : 1 }}>
                         <FileText size={11} /> テキスト
                       </span>
                     )}
-                    {content.has_assignment && (
+                    {hasAssignment && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500, background: '#fff7ed', border: '0.5px solid #fed7aa', color: '#c2410c', opacity: isLocked ? 0.4 : 1 }}>
                         <Upload size={11} /> 課題
                       </span>
