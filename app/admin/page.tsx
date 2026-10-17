@@ -5,26 +5,21 @@ import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import {
   Users, BookOpen, Plus, Trash2, Edit, Upload, X,
-  ChevronDown, ChevronUp, Save, AlertCircle, CheckCircle, Lock
+  ChevronDown, ChevronUp, Save, AlertCircle, CheckCircle, Lock, Link as LinkIcon
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface User { id: string; personal_id: string; username: string; role: string; created_at: string; }
-interface Unit { id: string; title: string; description: string; order: number; }
-interface Content {
-  id: string; unit_id: string; title: string; description: string; order: number;
-  has_video: boolean; has_textbook: boolean; has_assignment: boolean;
-  video_path: string | null; textbook_path: string | null;
-  assignment_path: string | null; answer_path: string | null;
-  lock_conditions: string[];
-}
+interface ContentItem { id: string; content_id: string; type: string; label: string; file_path?: string | null; url?: string | null; order: number; }
+interface Content { id: string; unit_id: string; title: string; description: string; order: number; lock_conditions: string[]; items: ContentItem[]; }
+interface Unit { id: string; title: string; description: string; order: number; contents: Content[]; }
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
 function Toast({ msg, type, onClose }: { msg: string; type: 'success' | 'error'; onClose: () => void }) {
   useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, [onClose]);
   return (
-    <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-5 py-3 rounded-lg shadow-lg text-white text-sm font-medium animate-fade-in ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
-      {type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />} {msg}
+    <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 50, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.15)', color: '#fff', fontSize: 13, fontWeight: 500, background: type === 'success' ? '#16a34a' : '#dc2626' }}>
+      {type === 'success' ? <CheckCircle size={15} /> : <AlertCircle size={15} />} {msg}
     </div>
   );
 }
@@ -32,17 +27,21 @@ function Toast({ msg, type, onClose }: { msg: string; type: 'success' | 'error';
 // ─── Modal ───────────────────────────────────────────────────────────────────
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h3 className="font-bold text-gray-900">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)' }}>
+      <div style={{ background: '#fff', borderRadius: 14, boxShadow: '0 8px 40px rgba(0,0,0,0.18)', width: '100%', maxWidth: 520, margin: '0 16px', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '0.5px solid #e5e7eb' }}>
+          <h3 style={{ fontWeight: 700, color: '#111827', fontSize: 15 }}>{title}</h3>
+          <button onClick={onClose} style={{ color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><X size={20} /></button>
         </div>
-        <div className="p-6">{children}</div>
+        <div style={{ padding: 24 }}>{children}</div>
       </div>
     </div>
   );
 }
+
+const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' };
+const labelStyle: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 4 };
+const btnPrimary: React.CSSProperties = { background: '#0f1c2e', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' };
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function AdminPage() {
@@ -50,54 +49,48 @@ export default function AdminPage() {
   const router = useRouter();
   const [tab, setTab] = useState<'units' | 'users'>('units');
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-
-  // Data
   const [users, setUsers] = useState<User[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
-  const [contents, setContents] = useState<Content[]>([]);
   const [expandedUnit, setExpandedUnit] = useState<string | null>(null);
 
   // Modals
   const [showUserModal, setShowUserModal] = useState(false);
   const [showUnitModal, setShowUnitModal] = useState(false);
-  const [showContentModal, setShowContentModal] = useState<string | null>(null); // unit_id
+  const [showContentModal, setShowContentModal] = useState<string | null>(null);
+  const [showItemModal, setShowItemModal] = useState<{ contentId: string; item?: ContentItem } | null>(null);
   const [editUnit, setEditUnit] = useState<Unit | null>(null);
   const [editContent, setEditContent] = useState<Content | null>(null);
 
   // Forms
   const [userForm, setUserForm] = useState({ username: '', personal_id: '', password: '', role: 'user' });
   const [unitForm, setUnitForm] = useState({ title: '', description: '' });
-  const [contentForm, setContentForm] = useState({
-    title: '', description: '', has_video: false, has_textbook: true,
-    has_assignment: false, lock_conditions: [] as string[],
-  });
+  const [contentForm, setContentForm] = useState({ title: '', description: '', lock_conditions: [] as string[] });
+  const [itemForm, setItemForm] = useState({ type: 'pdf', label: '学習用', url: '' });
+  const [itemFile, setItemFile] = useState<File | null>(null);
+  const [uploadingItem, setUploadingItem] = useState(false);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type });
+  const f = { fontFamily: '"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP",Meiryo,sans-serif' };
 
-  // Auth guard
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/login');
-    if (status === 'authenticated' && (session?.user as any)?.role !== 'admin') router.push('/dashboard');
+    if (status === 'authenticated' && session?.user?.role !== 'admin') router.push('/dashboard');
   }, [status, session, router]);
 
-  // Load data
   useEffect(() => {
-    if (status === 'authenticated' && (session?.user as any)?.role === 'admin') {
-      loadAll();
-    }
+    if (status === 'authenticated' && session?.user?.role === 'admin') loadAll();
   }, [status]);
 
   const loadAll = () => {
     fetch('/api/admin/users').then(r => r.json()).then(setUsers);
-    fetch('/api/units').then(r => r.json()).then(setUnits);
-    fetch('/api/contents').then(r => r.json()).then(setContents);
+    fetch('/api/units').then(r => r.json()).then(data => setUnits(Array.isArray(data) ? data : []));
   };
+
+  const allContents = units.flatMap(u => u.contents ?? []);
 
   // ─── User actions ──────────────────────────────────────────────────────────
   const handleCreateUser = async () => {
-    const res = await fetch('/api/admin/users', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(userForm),
-    });
+    const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(userForm) });
     if (!res.ok) { showToast('作成に失敗しました（IDが重複している可能性があります）', 'error'); return; }
     showToast('ユーザーを作成しました');
     setShowUserModal(false);
@@ -113,7 +106,7 @@ export default function AdminPage() {
   };
 
   // ─── Unit actions ──────────────────────────────────────────────────────────
-  const handleCreateUnit = async () => {
+  const handleSaveUnit = async () => {
     const method = editUnit ? 'PUT' : 'POST';
     const url = editUnit ? `/api/units/${editUnit.id}` : '/api/units';
     await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(unitForm) });
@@ -133,20 +126,14 @@ export default function AdminPage() {
   // ─── Content actions ───────────────────────────────────────────────────────
   const handleSaveContent = async () => {
     if (editContent) {
-      await fetch(`/api/contents/${editContent.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(contentForm),
-      });
+      await fetch(`/api/contents/${editContent.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(contentForm) });
       showToast('コンテンツを更新しました');
     } else if (showContentModal) {
-      await fetch('/api/contents', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...contentForm, unit_id: showContentModal }),
-      });
+      await fetch('/api/contents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...contentForm, unit_id: showContentModal, order: 0 }) });
       showToast('コンテンツを作成しました');
     }
     setShowContentModal(null); setEditContent(null);
-    setContentForm({ title: '', description: '', has_video: false, has_textbook: true, has_assignment: false, lock_conditions: [] });
+    setContentForm({ title: '', description: '', lock_conditions: [] });
     loadAll();
   };
 
@@ -157,148 +144,182 @@ export default function AdminPage() {
     loadAll();
   };
 
-  // ─── File upload ───────────────────────────────────────────────────────────
-  const handleFileUpload = async (contentId: string, fileType: string, file: File) => {
-    const form = new FormData();
-    form.append('file', file);
-    form.append('content_id', contentId);
-    form.append('file_type', fileType);
-    const res = await fetch('/api/upload', { method: 'POST', body: form });
-    if (!res.ok) { showToast('アップロードに失敗しました', 'error'); return; }
-    showToast('アップロード完了');
+  // ─── Item actions ──────────────────────────────────────────────────────────
+  const handleSaveItem = async () => {
+    if (!showItemModal) return;
+    setUploadingItem(true);
+
+    if (itemForm.type === 'link') {
+      // URLアイテム
+      if (showItemModal.item) {
+        await fetch(`/api/items/${showItemModal.item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'link', label: itemForm.label, url: itemForm.url }) });
+      } else {
+        await fetch('/api/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content_id: showItemModal.contentId, type: 'link', label: itemForm.label, url: itemForm.url }) });
+      }
+      showToast('保存しました');
+    } else if (itemFile) {
+      // ファイルアップロード
+      const form = new FormData();
+      form.append('file', itemFile);
+      form.append('type', 'content_item');
+      form.append('contentId', showItemModal.contentId);
+      form.append('itemType', itemForm.type);
+      form.append('label', itemForm.label);
+      form.append('order', '0');
+      if (showItemModal.item) form.append('existingItemId', showItemModal.item.id);
+      const res = await fetch('/api/upload', { method: 'POST', body: form });
+      if (!res.ok) { showToast('アップロードに失敗しました', 'error'); setUploadingItem(false); return; }
+      showToast('アップロード完了');
+    } else if (showItemModal.item) {
+      // ラベルのみ更新
+      await fetch(`/api/items/${showItemModal.item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: itemForm.type, label: itemForm.label }) });
+      showToast('更新しました');
+    }
+
+    setUploadingItem(false);
+    setShowItemModal(null);
+    setItemForm({ type: 'pdf', label: '学習用', url: '' });
+    setItemFile(null);
+    loadAll();
+  };
+
+  const handleDeleteItem = async (itemId: string) => {
+    if (!confirm('このアイテムを削除しますか？')) return;
+    await fetch(`/api/items/${itemId}`, { method: 'DELETE' });
+    showToast('削除しました');
     loadAll();
   };
 
   if (status === 'loading') return null;
 
-  const unitContents = (unitId: string) => contents.filter(c => c.unit_id === unitId);
+  const typeBadge = (type: string) => {
+    const map: Record<string, { bg: string; color: string; label: string }> = {
+      video: { bg: '#eff6ff', color: '#2563eb', label: '動画' },
+      pdf:   { bg: '#faf5ff', color: '#7c3aed', label: 'PDF' },
+      link:  { bg: '#f0fdf4', color: '#16a34a', label: 'リンク' },
+    };
+    const s = map[type] ?? { bg: '#f3f4f6', color: '#6b7280', label: type };
+    return <span style={{ background: s.bg, color: s.color, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99 }}>{s.label}</span>;
+  };
+
+  const labelBadge = (label: string) => {
+    const map: Record<string, string> = { '学習用': '#2563eb', '課題用': '#c2410c', '解答用': '#16a34a', '参考資料': '#6b7280' };
+    const color = map[label] ?? '#6b7280';
+    return <span style={{ fontSize: 11, color, fontWeight: 500 }}>{label}</span>;
+  };
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
+    <div style={{ minHeight: '100vh', background: '#f5f7fa', ...f }}>
       <Header />
-
       {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">管理者画面</h1>
+      <main style={{ maxWidth: 960, margin: '0 auto', padding: '32px 24px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827', marginBottom: 24 }}>管理者画面</h1>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-6 border-b border-gray-200">
+        <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #e5e7eb' }}>
           {(['units', 'users'] as const).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-5 py-3 text-sm font-medium border-b-2 transition -mb-px ${tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-            >
-              {t === 'units' ? <><BookOpen size={14} className="inline mr-1.5" />単元・コンテンツ管理</> : <><Users size={14} className="inline mr-1.5" />ユーザー管理</>}
+            <button key={t} onClick={() => setTab(t)} style={{ padding: '10px 20px', fontSize: 13, fontWeight: 500, background: 'none', border: 'none', borderBottom: tab === t ? '2px solid #378ADD' : '2px solid transparent', color: tab === t ? '#378ADD' : '#6b7280', cursor: 'pointer', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+              {t === 'units' ? <><BookOpen size={14} />単元・コンテンツ管理</> : <><Users size={14} />ユーザー管理</>}
             </button>
           ))}
         </div>
 
-        {/* ── UNITS TAB ─────────────────────────────────────────────────────── */}
+        {/* ── UNITS TAB ── */}
         {tab === 'units' && (
           <div>
-            <div className="flex justify-end mb-4">
-              <button onClick={() => { setEditUnit(null); setUnitForm({ title: '', description: '' }); setShowUnitModal(true); }} className="btn-primary flex items-center gap-2 text-sm">
-                <Plus size={16} /> 単元を追加
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+              <button onClick={() => { setEditUnit(null); setUnitForm({ title: '', description: '' }); setShowUnitModal(true); }} style={btnPrimary}>
+                <Plus size={15} /> 単元を追加
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {units.map(unit => (
-                <div key={unit.id} className="card overflow-hidden">
+                <div key={unit.id} style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
                   {/* Unit header */}
-                  <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50"
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', cursor: 'pointer' }}
                     onClick={() => setExpandedUnit(expandedUnit === unit.id ? null : unit.id)}>
-                    <div className="flex items-center gap-3">
-                      {expandedUnit === unit.id ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {expandedUnit === unit.id ? <ChevronUp size={16} color="#9ca3af" /> : <ChevronDown size={16} color="#9ca3af" />}
                       <div>
-                        <div className="font-semibold text-gray-900">{unit.title}</div>
-                        <div className="text-sm text-gray-500">{unit.description} · {unitContents(unit.id).length}コンテンツ</div>
+                        <div style={{ fontWeight: 600, color: '#111827', fontSize: 14 }}>{unit.title}</div>
+                        <div style={{ fontSize: 12, color: '#6b7280' }}>{unit.description} · {(unit.contents ?? []).length}コンテンツ</div>
                       </div>
                     </div>
-                    <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
                       <button onClick={() => { setEditUnit(unit); setUnitForm({ title: unit.title, description: unit.description }); setShowUnitModal(true); }}
-                        className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition">
-                        <Edit size={16} />
+                        style={{ padding: 6, color: '#378ADD', background: '#eff6ff', border: 'none', borderRadius: 6, cursor: 'pointer', display: 'flex' }}>
+                        <Edit size={14} />
                       </button>
                       <button onClick={() => handleDeleteUnit(unit.id)}
-                        className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition">
-                        <Trash2 size={16} />
+                        style={{ padding: 6, color: '#ef4444', background: '#fef2f2', border: 'none', borderRadius: 6, cursor: 'pointer', display: 'flex' }}>
+                        <Trash2 size={14} />
                       </button>
                     </div>
                   </div>
 
                   {/* Contents */}
                   {expandedUnit === unit.id && (
-                    <div className="border-t border-gray-100 bg-gray-50 p-4 space-y-3">
-                      {unitContents(unit.id).map(c => (
-                        <div key={c.id} className="bg-white border border-gray-200 rounded-lg p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="font-semibold text-gray-900 mb-0.5">{c.title}</div>
-                              <div className="text-sm text-gray-500 mb-2">{c.description}</div>
-                              {/* Lock conditions */}
+                    <div style={{ borderTop: '0.5px solid #f3f4f6', background: '#f9fafb', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {(unit.contents ?? []).map(c => (
+                        <div key={c.id} style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                            <div>
+                              <div style={{ fontWeight: 600, color: '#111827', fontSize: 14, marginBottom: 2 }}>{c.title}</div>
+                              <div style={{ fontSize: 12, color: '#6b7280' }}>{c.description}</div>
                               {c.lock_conditions.length > 0 && (
-                                <div className="flex items-center gap-1 text-xs text-amber-600 mb-2">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6, fontSize: 11, color: '#d97706' }}>
                                   <Lock size={11} />
                                   {c.lock_conditions.map(id => {
-                                    const dep = contents.find(x => x.id === id);
-                                    return dep ? <span key={id} className="bg-amber-50 px-1.5 py-0.5 rounded">{dep.title}</span> : null;
+                                    const dep = allContents.find(x => x.id === id);
+                                    return dep ? <span key={id} style={{ background: '#fef3c7', padding: '1px 6px', borderRadius: 4 }}>{dep.title}</span> : null;
                                   })}
                                   完了後に解放
                                 </div>
                               )}
-                              {/* File uploads */}
-                              <div className="grid grid-cols-2 gap-2 mt-2">
-                                {c.has_video && (
-                                  <FileUploadRow label="動画" path={c.video_path} accept="video/*"
-                                    onUpload={f => handleFileUpload(c.id, 'video', f)} />
-                                )}
-                                {c.has_textbook && (
-                                  <FileUploadRow label="テキスト(PDF)" path={c.textbook_path} accept=".pdf"
-                                    onUpload={f => handleFileUpload(c.id, 'textbook', f)} />
-                                )}
-                                {c.has_assignment && (
-                                  <>
-                                    <FileUploadRow label="課題(PDF)" path={c.assignment_path} accept=".pdf"
-                                      onUpload={f => handleFileUpload(c.id, 'assignment', f)} />
-                                    <FileUploadRow label="解答(PDF)" path={c.answer_path} accept=".pdf"
-                                      onUpload={f => handleFileUpload(c.id, 'answer', f)} />
-                                  </>
-                                )}
-                              </div>
                             </div>
-                            <div className="flex gap-1 shrink-0">
-                              <button onClick={() => {
-                                setEditContent(c);
-                                setContentForm({
-                                  title: c.title, description: c.description,
-                                  has_video: c.has_video, has_textbook: c.has_textbook, has_assignment: c.has_assignment,
-                                  lock_conditions: c.lock_conditions,
-                                });
-                                setShowContentModal(c.unit_id);
-                              }} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded transition">
-                                <Edit size={14} />
+                            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                              <button onClick={() => { setEditContent(c); setContentForm({ title: c.title, description: c.description, lock_conditions: c.lock_conditions }); setShowContentModal(c.unit_id); }}
+                                style={{ padding: 5, color: '#378ADD', background: '#eff6ff', border: 'none', borderRadius: 6, cursor: 'pointer', display: 'flex' }}>
+                                <Edit size={13} />
                               </button>
                               <button onClick={() => handleDeleteContent(c.id)}
-                                className="p-1.5 text-red-400 hover:bg-red-50 rounded transition">
-                                <Trash2 size={14} />
+                                style={{ padding: 5, color: '#ef4444', background: '#fef2f2', border: 'none', borderRadius: 6, cursor: 'pointer', display: 'flex' }}>
+                                <Trash2 size={13} />
                               </button>
                             </div>
                           </div>
+
+                          {/* Items */}
+                          {(c.items ?? []).length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                              {c.items.map(item => (
+                                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#f9fafb', border: '0.5px solid #e5e7eb', borderRadius: 7, fontSize: 12 }}>
+                                  {typeBadge(item.type)}
+                                  {labelBadge(item.label)}
+                                  <span style={{ color: '#9ca3af', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {item.file_path ? item.file_path.split('/').pop() : item.url ?? '未設定'}
+                                  </span>
+                                  <button onClick={() => { setShowItemModal({ contentId: c.id, item }); setItemForm({ type: item.type, label: item.label, url: item.url ?? '' }); setItemFile(null); }}
+                                    style={{ fontSize: 11, color: '#378ADD', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', fontFamily: 'inherit' }}>変更</button>
+                                  <button onClick={() => handleDeleteItem(item.id)}
+                                    style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', fontFamily: 'inherit' }}>削除</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <button onClick={() => { setShowItemModal({ contentId: c.id }); setItemForm({ type: 'pdf', label: '学習用', url: '' }); setItemFile(null); }}
+                            style={{ fontSize: 12, color: '#378ADD', background: '#eff6ff', border: '0.5px solid #bfdbfe', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}>
+                            <Plus size={12} /> アイテムを追加
+                          </button>
                         </div>
                       ))}
 
-                      <button
-                        onClick={() => {
-                          setEditContent(null);
-                          setContentForm({ title: '', description: '', has_video: false, has_textbook: true, has_assignment: false, lock_conditions: [] });
-                          setShowContentModal(unit.id);
-                        }}
-                        className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition flex items-center justify-center gap-2"
-                      >
-                        <Plus size={14} /> コンテンツを追加
+                      <button onClick={() => { setEditContent(null); setContentForm({ title: '', description: '', lock_conditions: [] }); setShowContentModal(unit.id); }}
+                        style={{ width: '100%', padding: '10px', border: '1.5px dashed #d1d5db', borderRadius: 8, fontSize: 13, color: '#6b7280', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit' }}>
+                        <Plus size={13} /> コンテンツを追加
                       </button>
                     </div>
                   )}
@@ -306,48 +327,45 @@ export default function AdminPage() {
               ))}
 
               {units.length === 0 && (
-                <div className="text-center py-12 text-gray-400">
-                  <BookOpen size={36} className="mx-auto mb-2 opacity-30" />
-                  <p>単元がありません。追加してください。</p>
+                <div style={{ textAlign: 'center', padding: '48px 0', color: '#9ca3af' }}>
+                  <BookOpen size={36} style={{ margin: '0 auto 8px', opacity: 0.3 }} />
+                  <p style={{ fontSize: 13 }}>単元がありません。追加してください。</p>
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* ── USERS TAB ─────────────────────────────────────────────────────── */}
+        {/* ── USERS TAB ── */}
         {tab === 'users' && (
           <div>
-            <div className="flex justify-end mb-4">
-              <button onClick={() => setShowUserModal(true)} className="btn-primary flex items-center gap-2 text-sm">
-                <Plus size={16} /> ユーザーを追加
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+              <button onClick={() => setShowUserModal(true)} style={btnPrimary}>
+                <Plus size={15} /> ユーザーを追加
               </button>
             </div>
-
-            <div className="card overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="text-left px-4 py-3 text-gray-600 font-medium">名前</th>
-                    <th className="text-left px-4 py-3 text-gray-600 font-medium">ID</th>
-                    <th className="text-left px-4 py-3 text-gray-600 font-medium">権限</th>
-                    <th className="text-left px-4 py-3 text-gray-600 font-medium">登録日</th>
-                    <th className="px-4 py-3"></th>
+            <div style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#f9fafb', borderBottom: '0.5px solid #e5e7eb' }}>
+                    {['名前', 'ID', '権限', '登録日', ''].map(h => (
+                      <th key={h} style={{ textAlign: 'left', padding: '10px 16px', color: '#6b7280', fontWeight: 500, fontSize: 12 }}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {users.map(u => (
-                    <tr key={u.id} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium text-gray-900">{u.username}</td>
-                      <td className="px-4 py-3 text-gray-500 font-mono">{u.personal_id}</td>
-                      <td className="px-4 py-3">
-                        <span className={`status-badge ${u.role === 'admin' ? 'status-in-progress' : 'status-not-started'}`}>
+                    <tr key={u.id} style={{ borderBottom: '0.5px solid #f3f4f6' }}>
+                      <td style={{ padding: '10px 16px', fontWeight: 500, color: '#111827' }}>{u.username}</td>
+                      <td style={{ padding: '10px 16px', color: '#6b7280', fontFamily: 'monospace' }}>{u.personal_id}</td>
+                      <td style={{ padding: '10px 16px' }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: u.role === 'admin' ? '#dbeafe' : '#f3f4f6', color: u.role === 'admin' ? '#1d4ed8' : '#6b7280' }}>
                           {u.role === 'admin' ? '管理者' : 'ユーザー'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-400 text-xs">{new Date(u.created_at).toLocaleDateString('ja-JP')}</td>
-                      <td className="px-4 py-3">
-                        <button onClick={() => handleDeleteUser(u.id)} className="text-red-400 hover:text-red-600 p-1">
+                      <td style={{ padding: '10px 16px', color: '#9ca3af', fontSize: 12 }}>{new Date(u.created_at).toLocaleDateString('ja-JP')}</td>
+                      <td style={{ padding: '10px 16px' }}>
+                        <button onClick={() => handleDeleteUser(u.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
                           <Trash2 size={15} />
                         </button>
                       </td>
@@ -355,173 +373,144 @@ export default function AdminPage() {
                   ))}
                 </tbody>
               </table>
-              {users.length === 0 && (
-                <div className="text-center py-10 text-gray-400">ユーザーがいません</div>
-              )}
+              {users.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af', fontSize: 13 }}>ユーザーがいません</div>}
             </div>
           </div>
         )}
       </main>
 
-      {/* ── USER MODAL ──────────────────────────────────────────────────────── */}
+      {/* ── USER MODAL ── */}
       {showUserModal && (
         <Modal title="ユーザーを作成" onClose={() => setShowUserModal(false)}>
-          <div className="space-y-4">
-            {[
-              { label: '名前', key: 'username', type: 'text', placeholder: '山田 太郎' },
-              { label: 'ID（ログイン用）', key: 'personal_id', type: 'text', placeholder: 'student03' },
-              { label: 'パスワード', key: 'password', type: 'password', placeholder: '••••••••' },
-            ].map(f => (
-              <div key={f.key}>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
-                <input type={f.type} placeholder={f.placeholder}
-                  value={(userForm as any)[f.key]}
-                  onChange={e => setUserForm(p => ({ ...p, [f.key]: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {[{ label: '名前', key: 'username', type: 'text', placeholder: '山田 太郎' }, { label: 'ID（ログイン用）', key: 'personal_id', type: 'text', placeholder: 'student03' }, { label: 'パスワード', key: 'password', type: 'password', placeholder: '••••••••' }].map(field => (
+              <div key={field.key}>
+                <label style={labelStyle}>{field.label}</label>
+                <input type={field.type} placeholder={field.placeholder} value={(userForm as any)[field.key]}
+                  onChange={e => setUserForm(p => ({ ...p, [field.key]: e.target.value }))} style={inputStyle} />
               </div>
             ))}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">権限</label>
-              <select value={userForm.role} onChange={e => setUserForm(p => ({ ...p, role: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <label style={labelStyle}>権限</label>
+              <select value={userForm.role} onChange={e => setUserForm(p => ({ ...p, role: e.target.value }))} style={inputStyle}>
                 <option value="user">ユーザー（生徒）</option>
                 <option value="admin">管理者（教員）</option>
               </select>
             </div>
-            <button onClick={handleCreateUser} className="w-full btn-primary py-2.5 flex items-center justify-center gap-2">
-              <Save size={16} /> 作成する
+            <button onClick={handleCreateUser} style={{ ...btnPrimary, width: '100%', justifyContent: 'center', padding: '10px' }}>
+              <Save size={15} /> 作成する
             </button>
           </div>
         </Modal>
       )}
 
-      {/* ── UNIT MODAL ──────────────────────────────────────────────────────── */}
+      {/* ── UNIT MODAL ── */}
       {showUnitModal && (
         <Modal title={editUnit ? '単元を編集' : '単元を作成'} onClose={() => { setShowUnitModal(false); setEditUnit(null); }}>
-          <div className="space-y-4">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">単元名</label>
-              <input type="text" placeholder="例：二次関数"
-                value={unitForm.title} onChange={e => setUnitForm(p => ({ ...p, title: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <label style={labelStyle}>単元名</label>
+              <input type="text" placeholder="例：二次関数" value={unitForm.title} onChange={e => setUnitForm(p => ({ ...p, title: e.target.value }))} style={inputStyle} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">説明</label>
-              <textarea placeholder="この単元で学ぶ内容を入力"
-                value={unitForm.description} onChange={e => setUnitForm(p => ({ ...p, description: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-none"
-              />
+              <label style={labelStyle}>説明</label>
+              <textarea placeholder="この単元で学ぶ内容" value={unitForm.description} onChange={e => setUnitForm(p => ({ ...p, description: e.target.value }))}
+                style={{ ...inputStyle, height: 80, resize: 'none' }} />
             </div>
-            <button onClick={handleCreateUnit} className="w-full btn-primary py-2.5 flex items-center justify-center gap-2">
-              <Save size={16} /> {editUnit ? '更新する' : '作成する'}
+            <button onClick={handleSaveUnit} style={{ ...btnPrimary, width: '100%', justifyContent: 'center', padding: '10px' }}>
+              <Save size={15} /> {editUnit ? '更新する' : '作成する'}
             </button>
           </div>
         </Modal>
       )}
 
-      {/* ── CONTENT MODAL ───────────────────────────────────────────────────── */}
+      {/* ── CONTENT MODAL ── */}
       {showContentModal && (
         <Modal title={editContent ? 'コンテンツを編集' : 'コンテンツを追加'} onClose={() => { setShowContentModal(null); setEditContent(null); }}>
-          <div className="space-y-4">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">コンテンツ名</label>
-              <input type="text" placeholder="例：二次関数とは"
-                value={contentForm.title} onChange={e => setContentForm(p => ({ ...p, title: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <label style={labelStyle}>コンテンツ名</label>
+              <input type="text" placeholder="例：二次関数とは" value={contentForm.title} onChange={e => setContentForm(p => ({ ...p, title: e.target.value }))} style={inputStyle} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">説明</label>
-              <textarea placeholder="このコンテンツで学ぶ内容"
-                value={contentForm.description} onChange={e => setContentForm(p => ({ ...p, description: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 h-20 resize-none"
-              />
-            </div>
-            {/* Checkboxes */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">含めるコンテンツタイプ</label>
-              <div className="space-y-2">
-                {[
-                  { key: 'has_video', label: '学習動画' },
-                  { key: 'has_textbook', label: '学習テキスト（PDF）' },
-                  { key: 'has_assignment', label: '課題提出' },
-                ].map(opt => (
-                  <label key={opt.key} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={(contentForm as any)[opt.key]}
-                      onChange={e => setContentForm(p => ({ ...p, [opt.key]: e.target.checked }))}
-                      className="w-4 h-4 accent-blue-600"
-                    />
-                    <span className="text-sm text-gray-700">{opt.label}</span>
-                  </label>
-                ))}
-              </div>
+              <label style={labelStyle}>説明</label>
+              <textarea placeholder="このコンテンツで学ぶ内容" value={contentForm.description} onChange={e => setContentForm(p => ({ ...p, description: e.target.value }))}
+                style={{ ...inputStyle, height: 72, resize: 'none' }} />
             </div>
             {/* Lock conditions */}
             {(() => {
               const unitId = editContent?.unit_id || showContentModal;
-              const available = contents.filter(c => c.unit_id === unitId && c.id !== editContent?.id);
+              const available = allContents.filter(c => c.unit_id === unitId && c.id !== editContent?.id);
               if (available.length === 0) return null;
               return (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    <Lock size={13} className="inline mr-1" />ロック条件（完了が必要なコンテンツ）
-                  </label>
-                  <div className="space-y-1.5 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <label style={labelStyle}><Lock size={12} style={{ display: 'inline', marginRight: 4 }} />ロック条件</label>
+                  <div style={{ background: '#fffbeb', border: '0.5px solid #fcd34d', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {available.map(c => (
-                      <label key={c.id} className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox"
-                          checked={contentForm.lock_conditions.includes(c.id)}
-                          onChange={e => {
-                            setContentForm(p => ({
-                              ...p,
-                              lock_conditions: e.target.checked
-                                ? [...p.lock_conditions, c.id]
-                                : p.lock_conditions.filter(id => id !== c.id),
-                            }));
-                          }}
-                          className="w-4 h-4 accent-amber-600"
-                        />
-                        <span className="text-sm text-gray-700">{c.title}</span>
+                      <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                        <input type="checkbox" checked={contentForm.lock_conditions.includes(c.id)}
+                          onChange={e => setContentForm(p => ({ ...p, lock_conditions: e.target.checked ? [...p.lock_conditions, c.id] : p.lock_conditions.filter(id => id !== c.id) }))} />
+                        {c.title}
                       </label>
                     ))}
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">チェックしたコンテンツを完了しないとアクセスできません</p>
+                  <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>チェックしたコンテンツを完了しないとアクセスできません</p>
                 </div>
               );
             })()}
-            <button onClick={handleSaveContent} className="w-full btn-primary py-2.5 flex items-center justify-center gap-2">
-              <Save size={16} /> {editContent ? '更新する' : '作成する'}
+            <button onClick={handleSaveContent} style={{ ...btnPrimary, width: '100%', justifyContent: 'center', padding: '10px' }}>
+              <Save size={15} /> {editContent ? '更新する' : '作成する'}
             </button>
           </div>
         </Modal>
       )}
-    </div>
-  );
-}
 
-// ─── File upload row component ────────────────────────────────────────────────
-function FileUploadRow({ label, path, accept, onUpload }: {
-  label: string; path: string | null; accept: string; onUpload: (f: File) => void;
-}) {
-  return (
-    <div className="bg-gray-50 border border-gray-200 rounded-lg p-2">
-      <div className="text-xs text-gray-500 font-medium mb-1">{label}</div>
-      {path ? (
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-green-600 truncate">✓ アップロード済み</span>
-          <label className="text-xs text-blue-500 hover:underline cursor-pointer ml-1">
-            変更
-            <input type="file" accept={accept} className="hidden" onChange={e => { if (e.target.files?.[0]) onUpload(e.target.files[0]); }} />
-          </label>
-        </div>
-      ) : (
-        <label className="flex items-center gap-1 cursor-pointer text-xs text-gray-400 hover:text-blue-500">
-          <Upload size={11} />
-          アップロード
-          <input type="file" accept={accept} className="hidden" onChange={e => { if (e.target.files?.[0]) onUpload(e.target.files[0]); }} />
-        </label>
+      {/* ── ITEM MODAL ── */}
+      {showItemModal && (
+        <Modal title={showItemModal.item ? 'アイテムを編集' : 'アイテムを追加'} onClose={() => { setShowItemModal(null); setItemFile(null); }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <label style={labelStyle}>種類</label>
+              <select value={itemForm.type} onChange={e => setItemForm(p => ({ ...p, type: e.target.value }))} style={inputStyle}>
+                <option value="pdf">PDF</option>
+                <option value="video">動画</option>
+                <option value="link">リンク（URL）</option>
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>用途ラベル</label>
+              <select value={itemForm.label} onChange={e => setItemForm(p => ({ ...p, label: e.target.value }))} style={inputStyle}>
+                <option value="学習用">学習用</option>
+                <option value="課題用">課題用</option>
+                <option value="解答用">解答用</option>
+                <option value="参考資料">参考資料</option>
+              </select>
+            </div>
+            {itemForm.type === 'link' ? (
+              <div>
+                <label style={labelStyle}>URL</label>
+                <input type="url" placeholder="https://..." value={itemForm.url} onChange={e => setItemForm(p => ({ ...p, url: e.target.value }))} style={inputStyle} />
+              </div>
+            ) : (
+              <div>
+                <label style={labelStyle}>ファイル</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px dashed #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>
+                  <Upload size={14} />
+                  {itemFile ? itemFile.name : showItemModal.item?.file_path ? '変更する（任意）' : 'ファイルを選択'}
+                  <input type="file" accept={itemForm.type === 'video' ? 'video/*' : '.pdf'} style={{ display: 'none' }}
+                    onChange={e => setItemFile(e.target.files?.[0] ?? null)} />
+                </label>
+                {showItemModal.item?.file_path && !itemFile && (
+                  <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>現在: {showItemModal.item.file_path.split('/').pop()}</p>
+                )}
+              </div>
+            )}
+            <button onClick={handleSaveItem} disabled={uploadingItem}
+              style={{ ...btnPrimary, width: '100%', justifyContent: 'center', padding: '10px', opacity: uploadingItem ? 0.6 : 1 }}>
+              <Save size={15} /> {uploadingItem ? '処理中...' : showItemModal.item ? '更新する' : '追加する'}
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );
