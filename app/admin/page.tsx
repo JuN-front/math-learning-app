@@ -4,8 +4,25 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
   Users, BookOpen, Plus, Trash2, Edit, Upload, X,
-  ChevronDown, ChevronUp, Save, AlertCircle, CheckCircle, Lock, Link as LinkIcon
+  ChevronDown, ChevronUp, Save, AlertCircle, CheckCircle, Lock, GripVertical
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -43,6 +60,104 @@ const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', bo
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 4 };
 const btnPrimary: React.CSSProperties = { background: '#0f1c2e', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' };
 
+// ─── SortableContent ─────────────────────────────────────────────────────────
+function SortableContent({
+  content, allContents, onEdit, onDelete, onAddItem, onEditItem, onDeleteItem
+}: {
+  content: Content;
+  allContents: Content[];
+  onEdit: (c: Content) => void;
+  onDelete: (id: string) => void;
+  onAddItem: (contentId: string) => void;
+  onEditItem: (contentId: string, item: ContentItem) => void;
+  onDeleteItem: (itemId: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: content.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const typeBadge = (type: string) => {
+    const map: Record<string, { bg: string; color: string; label: string }> = {
+      video: { bg: '#eff6ff', color: '#2563eb', label: '動画' },
+      pdf:   { bg: '#faf5ff', color: '#7c3aed', label: 'PDF' },
+      link:  { bg: '#f0fdf4', color: '#16a34a', label: 'リンク' },
+    };
+    const s = map[type] ?? { bg: '#f3f4f6', color: '#6b7280', label: type };
+    return <span style={{ background: s.bg, color: s.color, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99 }}>{s.label}</span>;
+  };
+
+  const labelBadge = (label: string) => {
+    const map: Record<string, string> = { '学習用': '#2563eb', '課題用': '#c2410c', '解答用': '#16a34a', '参考資料': '#6b7280' };
+    return <span style={{ fontSize: 11, color: map[label] ?? '#6b7280', fontWeight: 500 }}>{label}</span>;
+  };
+
+  return (
+    <div ref={setNodeRef} style={{ ...style, background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          {/* Drag handle */}
+          <div {...attributes} {...listeners} style={{ cursor: 'grab', color: '#d1d5db', paddingTop: 2, flexShrink: 0, touchAction: 'none' }}>
+            <GripVertical size={16} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 600, color: '#111827', fontSize: 14, marginBottom: 2 }}>{content.title}</div>
+            <div style={{ fontSize: 12, color: '#6b7280' }}>{content.description}</div>
+            {content.lock_conditions.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6, fontSize: 11, color: '#d97706' }}>
+                <Lock size={11} />
+                {content.lock_conditions.map(id => {
+                  const dep = allContents.find(x => x.id === id);
+                  return dep ? <span key={id} style={{ background: '#fef3c7', padding: '1px 6px', borderRadius: 4 }}>{dep.title}</span> : null;
+                })}
+                完了後に解放
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+          <button onClick={() => onEdit(content)}
+            style={{ padding: 5, color: '#378ADD', background: '#eff6ff', border: 'none', borderRadius: 6, cursor: 'pointer', display: 'flex' }}>
+            <Edit size={13} />
+          </button>
+          <button onClick={() => onDelete(content.id)}
+            style={{ padding: 5, color: '#ef4444', background: '#fef2f2', border: 'none', borderRadius: 6, cursor: 'pointer', display: 'flex' }}>
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* Items */}
+      {(content.items ?? []).length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10, marginLeft: 24 }}>
+          {content.items.map(item => (
+            <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#f9fafb', border: '0.5px solid #e5e7eb', borderRadius: 7, fontSize: 12 }}>
+              {typeBadge(item.type)}
+              {labelBadge(item.label)}
+              <span style={{ color: '#9ca3af', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {item.file_path ? item.file_path.split('/').pop() : item.url ?? '未設定'}
+              </span>
+              <button onClick={() => onEditItem(content.id, item)}
+                style={{ fontSize: 11, color: '#378ADD', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', fontFamily: 'inherit' }}>変更</button>
+              <button onClick={() => onDeleteItem(item.id)}
+                style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', fontFamily: 'inherit' }}>削除</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginLeft: 24 }}>
+        <button onClick={() => onAddItem(content.id)}
+          style={{ fontSize: 12, color: '#378ADD', background: '#eff6ff', border: '0.5px solid #bfdbfe', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}>
+          <Plus size={12} /> アイテムを追加
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const { data: session, status } = useSession();
@@ -72,6 +187,11 @@ export default function AdminPage() {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type });
   const f = { fontFamily: '"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP",Meiryo,sans-serif' };
 
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/login');
     if (status === 'authenticated' && session?.user?.role !== 'admin') router.push('/dashboard');
@@ -87,6 +207,36 @@ export default function AdminPage() {
   };
 
   const allContents = units.flatMap(u => u.contents ?? []);
+
+  // ─── Drag end: reorder contents within a unit ──────────────────────────────
+  const handleDragEnd = async (event: DragEndEvent, unitId: string) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const unit = units.find(u => u.id === unitId);
+    if (!unit) return;
+
+    const oldIndex = unit.contents.findIndex(c => c.id === active.id);
+    const newIndex = unit.contents.findIndex(c => c.id === over.id);
+    const newContents = arrayMove(unit.contents, oldIndex, newIndex);
+
+    // Optimistic update
+    setUnits(prev => prev.map(u => u.id === unitId ? { ...u, contents: newContents } : u));
+
+    // Persist
+    const orders = newContents.map((c, i) => ({ id: c.id, order: i }));
+    const res = await fetch('/api/contents/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orders }),
+    });
+    if (!res.ok) {
+      showToast('並べ替えの保存に失敗しました', 'error');
+      loadAll(); // revert
+    } else {
+      showToast('順番を保存しました');
+    }
+  };
 
   // ─── User actions ──────────────────────────────────────────────────────────
   const handleCreateUser = async () => {
@@ -129,7 +279,9 @@ export default function AdminPage() {
       await fetch(`/api/contents/${editContent.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(contentForm) });
       showToast('コンテンツを更新しました');
     } else if (showContentModal) {
-      await fetch('/api/contents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...contentForm, unit_id: showContentModal, order: 0 }) });
+      const unit = units.find(u => u.id === showContentModal);
+      const order = unit ? (unit.contents ?? []).length : 0;
+      await fetch('/api/contents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...contentForm, unit_id: showContentModal, order }) });
       showToast('コンテンツを作成しました');
     }
     setShowContentModal(null); setEditContent(null);
@@ -150,7 +302,6 @@ export default function AdminPage() {
     setUploadingItem(true);
 
     if (itemForm.type === 'link') {
-      // URLアイテム
       if (showItemModal.item) {
         await fetch(`/api/items/${showItemModal.item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'link', label: itemForm.label, url: itemForm.url }) });
       } else {
@@ -158,7 +309,6 @@ export default function AdminPage() {
       }
       showToast('保存しました');
     } else if (itemFile) {
-      // ファイルアップロード
       const form = new FormData();
       form.append('file', itemFile);
       form.append('type', 'content_item');
@@ -171,7 +321,6 @@ export default function AdminPage() {
       if (!res.ok) { showToast('アップロードに失敗しました', 'error'); setUploadingItem(false); return; }
       showToast('アップロード完了');
     } else if (showItemModal.item) {
-      // ラベルのみ更新
       await fetch(`/api/items/${showItemModal.item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: itemForm.type, label: itemForm.label }) });
       showToast('更新しました');
     }
@@ -191,22 +340,6 @@ export default function AdminPage() {
   };
 
   if (status === 'loading') return null;
-
-  const typeBadge = (type: string) => {
-    const map: Record<string, { bg: string; color: string; label: string }> = {
-      video: { bg: '#eff6ff', color: '#2563eb', label: '動画' },
-      pdf:   { bg: '#faf5ff', color: '#7c3aed', label: 'PDF' },
-      link:  { bg: '#f0fdf4', color: '#16a34a', label: 'リンク' },
-    };
-    const s = map[type] ?? { bg: '#f3f4f6', color: '#6b7280', label: type };
-    return <span style={{ background: s.bg, color: s.color, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99 }}>{s.label}</span>;
-  };
-
-  const labelBadge = (label: string) => {
-    const map: Record<string, string> = { '学習用': '#2563eb', '課題用': '#c2410c', '解答用': '#16a34a', '参考資料': '#6b7280' };
-    const color = map[label] ?? '#6b7280';
-    return <span style={{ fontSize: 11, color, fontWeight: 500 }}>{label}</span>;
-  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f7fa', ...f }}>
@@ -259,66 +392,39 @@ export default function AdminPage() {
                     </div>
                   </div>
 
-                  {/* Contents */}
+                  {/* Contents with DnD */}
                   {expandedUnit === unit.id && (
-                    <div style={{ borderTop: '0.5px solid #f3f4f6', background: '#f9fafb', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      {(unit.contents ?? []).map(c => (
-                        <div key={c.id} style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
-                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-                            <div>
-                              <div style={{ fontWeight: 600, color: '#111827', fontSize: 14, marginBottom: 2 }}>{c.title}</div>
-                              <div style={{ fontSize: 12, color: '#6b7280' }}>{c.description}</div>
-                              {c.lock_conditions.length > 0 && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6, fontSize: 11, color: '#d97706' }}>
-                                  <Lock size={11} />
-                                  {c.lock_conditions.map(id => {
-                                    const dep = allContents.find(x => x.id === id);
-                                    return dep ? <span key={id} style={{ background: '#fef3c7', padding: '1px 6px', borderRadius: 4 }}>{dep.title}</span> : null;
-                                  })}
-                                  完了後に解放
-                                </div>
-                              )}
-                            </div>
-                            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                              <button onClick={() => { setEditContent(c); setContentForm({ title: c.title, description: c.description, lock_conditions: c.lock_conditions }); setShowContentModal(c.unit_id); }}
-                                style={{ padding: 5, color: '#378ADD', background: '#eff6ff', border: 'none', borderRadius: 6, cursor: 'pointer', display: 'flex' }}>
-                                <Edit size={13} />
-                              </button>
-                              <button onClick={() => handleDeleteContent(c.id)}
-                                style={{ padding: 5, color: '#ef4444', background: '#fef2f2', border: 'none', borderRadius: 6, cursor: 'pointer', display: 'flex' }}>
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
+                    <div style={{ borderTop: '0.5px solid #f3f4f6', background: '#f9fafb', padding: '12px 16px' }}>
+                      {(unit.contents ?? []).length > 1 && (
+                        <p style={{ fontSize: 11, color: '#9ca3af', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <GripVertical size={11} /> ドラッグして並べ替え
+                        </p>
+                      )}
+                      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => handleDragEnd(e, unit.id)}>
+                        <SortableContext items={(unit.contents ?? []).map(c => c.id)} strategy={verticalListSortingStrategy}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {(unit.contents ?? []).map(c => (
+                              <SortableContent
+                                key={c.id}
+                                content={c}
+                                allContents={allContents}
+                                onEdit={(content) => {
+                                  setEditContent(content);
+                                  setContentForm({ title: content.title, description: content.description, lock_conditions: content.lock_conditions });
+                                  setShowContentModal(content.unit_id);
+                                }}
+                                onDelete={handleDeleteContent}
+                                onAddItem={(contentId) => { setShowItemModal({ contentId }); setItemForm({ type: 'pdf', label: '学習用', url: '' }); setItemFile(null); }}
+                                onEditItem={(contentId, item) => { setShowItemModal({ contentId, item }); setItemForm({ type: item.type, label: item.label, url: item.url ?? '' }); setItemFile(null); }}
+                                onDeleteItem={handleDeleteItem}
+                              />
+                            ))}
                           </div>
-
-                          {/* Items */}
-                          {(c.items ?? []).length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-                              {c.items.map(item => (
-                                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#f9fafb', border: '0.5px solid #e5e7eb', borderRadius: 7, fontSize: 12 }}>
-                                  {typeBadge(item.type)}
-                                  {labelBadge(item.label)}
-                                  <span style={{ color: '#9ca3af', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {item.file_path ? item.file_path.split('/').pop() : item.url ?? '未設定'}
-                                  </span>
-                                  <button onClick={() => { setShowItemModal({ contentId: c.id, item }); setItemForm({ type: item.type, label: item.label, url: item.url ?? '' }); setItemFile(null); }}
-                                    style={{ fontSize: 11, color: '#378ADD', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', fontFamily: 'inherit' }}>変更</button>
-                                  <button onClick={() => handleDeleteItem(item.id)}
-                                    style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', fontFamily: 'inherit' }}>削除</button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          <button onClick={() => { setShowItemModal({ contentId: c.id }); setItemForm({ type: 'pdf', label: '学習用', url: '' }); setItemFile(null); }}
-                            style={{ fontSize: 12, color: '#378ADD', background: '#eff6ff', border: '0.5px solid #bfdbfe', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}>
-                            <Plus size={12} /> アイテムを追加
-                          </button>
-                        </div>
-                      ))}
+                        </SortableContext>
+                      </DndContext>
 
                       <button onClick={() => { setEditContent(null); setContentForm({ title: '', description: '', lock_conditions: [] }); setShowContentModal(unit.id); }}
-                        style={{ width: '100%', padding: '10px', border: '1.5px dashed #d1d5db', borderRadius: 8, fontSize: 13, color: '#6b7280', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit' }}>
+                        style={{ width: '100%', marginTop: 10, padding: '10px', border: '1.5px dashed #d1d5db', borderRadius: 8, fontSize: 13, color: '#6b7280', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit' }}>
                         <Plus size={13} /> コンテンツを追加
                       </button>
                     </div>
@@ -437,7 +543,6 @@ export default function AdminPage() {
               <textarea placeholder="このコンテンツで学ぶ内容" value={contentForm.description} onChange={e => setContentForm(p => ({ ...p, description: e.target.value }))}
                 style={{ ...inputStyle, height: 72, resize: 'none' }} />
             </div>
-            {/* Lock conditions */}
             {(() => {
               const unitId = editContent?.unit_id || showContentModal;
               const available = allContents.filter(c => c.unit_id === unitId && c.id !== editContent?.id);
