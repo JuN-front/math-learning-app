@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       content_id: e.contentId ?? null,
       item_id: e.itemId ?? null,
       event: e.event,
-      payload: e.payload ?? undefined,
+      payload: e.payload ? (e.payload as import('@prisma/client').Prisma.InputJsonValue) : undefined,
       client_time: new Date(e.client_time),
     })),
     skipDuplicates: false,
