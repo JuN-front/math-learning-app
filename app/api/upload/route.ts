@@ -1,3 +1,4 @@
+// app/api/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -24,6 +25,8 @@ export async function POST(request: NextRequest) {
     }
     const userId = session.user.id;
 
+    // 課題提出ファイルは access: 'public' → Blob URLで保存
+    // （PDFはiframeで表示するためpublicが必要。研究倫理上の懸念はEventLogで代替管理）
     const { url } = await put(`submissions/${userId}/${filename}`, file, { access: 'public' });
 
     const submission = await prisma.itemSubmission.upsert({
@@ -42,6 +45,18 @@ export async function POST(request: NextRequest) {
       where: { user_id_content_id: { user_id: userId, content_id: contentId } },
       update: { status: 'completed' },
       create: { user_id: userId, content_id: contentId, status: 'completed' },
+    });
+
+    // 提出をEventLogに記録（再提出回数追跡用）
+    await prisma.eventLog.create({
+      data: {
+        user_id: userId,
+        content_id: contentId,
+        item_id: itemId,
+        event: 'submit',
+        payload: { filename: file.name, blob_url: url },
+        client_time: new Date(),
+      },
     });
 
     return NextResponse.json({ submission, file_path: url });
@@ -99,6 +114,21 @@ export async function DELETE(request: NextRequest) {
     if (sub?.file_path) {
       try { await del(sub.file_path); } catch {}
     }
+
+    // 削除をEventLogに記録
+    if (sub) {
+      await prisma.eventLog.create({
+        data: {
+          user_id: userId,
+          content_id: sub.content_id,
+          item_id: itemId,
+          event: 'submission_delete',
+          payload: { filename: sub.filename },
+          client_time: new Date(),
+        },
+      });
+    }
+
     await prisma.itemSubmission.deleteMany({ where: { user_id: userId, item_id: itemId } });
     return NextResponse.json({ success: true });
   }
