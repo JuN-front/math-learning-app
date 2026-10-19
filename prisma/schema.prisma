@@ -17,6 +17,7 @@ model User {
 
   progress    Progress[]
   assignments ItemSubmission[]
+  event_logs  EventLog[]
 }
 
 model Unit {
@@ -42,13 +43,14 @@ model Content {
   items       ContentItem[]
   progress    Progress[]
   submissions ItemSubmission[]
+  event_logs  EventLog[]
 }
 
 model ContentItem {
   id         String   @id @default(cuid())
   content_id String
-  type       String   // 'video' | 'pdf' | 'link'
-  label      String   // '学習用' | '課題用' | '解答用' | '参考資料'
+  type       String
+  label      String
   file_path  String?
   url        String?
   order      Int      @default(0)
@@ -56,6 +58,7 @@ model ContentItem {
 
   content     Content         @relation(fields: [content_id], references: [id], onDelete: Cascade)
   submissions ItemSubmission[]
+  event_logs  EventLog[]
 }
 
 model Progress {
@@ -85,4 +88,21 @@ model ItemSubmission {
   item    ContentItem @relation(fields: [item_id], references: [id], onDelete: Cascade)
 
   @@unique([user_id, item_id])
+}
+
+model EventLog {
+  id          String   @id @default(cuid())
+  user_id     String
+  content_id  String?
+  item_id     String?
+  event       String
+  payload     Json?
+  client_time DateTime
+  created_at  DateTime @default(now())
+
+  user    User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  content Content?     @relation(fields: [content_id], references: [id], onDelete: SetNull)
+  item    ContentItem? @relation(fields: [item_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id, content_id])
 }
