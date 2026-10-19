@@ -22,7 +22,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Users, BookOpen, Plus, Trash2, Edit, Upload, X,
-  ChevronDown, ChevronUp, Save, AlertCircle, CheckCircle, Lock, GripVertical
+  ChevronDown, ChevronUp, Save, AlertCircle, CheckCircle, Lock, GripVertical,
+  Download, BarChart2
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -162,7 +163,13 @@ function SortableContent({
 export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [tab, setTab] = useState<'units' | 'users'>('units');
+  const [tab, setTab] = useState<'units' | 'users' | 'logs'>('units');
+
+  // Log export state
+  const [logFrom, setLogFrom] = useState('');
+  const [logTo, setLogTo] = useState('');
+  const [logContentId, setLogContentId] = useState('');
+  const [exportLoading, setExportLoading] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
@@ -351,9 +358,13 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #e5e7eb' }}>
-          {(['units', 'users'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{ padding: '10px 20px', fontSize: 13, fontWeight: 500, background: 'none', border: 'none', borderBottom: tab === t ? '2px solid #378ADD' : '2px solid transparent', color: tab === t ? '#378ADD' : '#6b7280', cursor: 'pointer', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
-              {t === 'units' ? <><BookOpen size={14} />単元・コンテンツ管理</> : <><Users size={14} />ユーザー管理</>}
+          {([
+            { key: 'units', label: '単元・コンテンツ管理', icon: <BookOpen size={14} /> },
+            { key: 'users', label: 'ユーザー管理', icon: <Users size={14} /> },
+            { key: 'logs',  label: 'ログエクスポート',    icon: <BarChart2 size={14} /> },
+          ] as const).map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '10px 20px', fontSize: 13, fontWeight: 500, background: 'none', border: 'none', borderBottom: tab === t.key ? '2px solid #378ADD' : '2px solid transparent', color: tab === t.key ? '#378ADD' : '#6b7280', cursor: 'pointer', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+              {t.icon}{t.label}
             </button>
           ))}
         </div>
@@ -480,6 +491,75 @@ export default function AdminPage() {
                 </tbody>
               </table>
               {users.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af', fontSize: 13 }}>ユーザーがいません</div>}
+            </div>
+          </div>
+        )}
+
+        {/* ── LOGS TAB ── */}
+        {tab === 'logs' && (
+          <div>
+            <div style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, padding: 24, maxWidth: 560 }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: '#111827', marginBottom: 4 }}>行動ログCSVエクスポート</h2>
+              <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 20 }}>
+                期間・コンテンツで絞り込んでダウンロードできます。未指定の場合は全件取得します（上限50,000件）。
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={labelStyle}>開始日</label>
+                    <input type="date" value={logFrom} onChange={e => setLogFrom(e.target.value)} style={inputStyle} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={labelStyle}>終了日</label>
+                    <input type="date" value={logTo} onChange={e => setLogTo(e.target.value)} style={inputStyle} />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={labelStyle}>コンテンツで絞り込み（任意）</label>
+                  <select value={logContentId} onChange={e => setLogContentId(e.target.value)} style={inputStyle}>
+                    <option value="">すべてのコンテンツ</option>
+                    {units.flatMap(u => (u.contents ?? []).map(c => (
+                      <option key={c.id} value={c.id}>{u.title} › {c.title}</option>
+                    )))}
+                  </select>
+                </div>
+
+                <div style={{ background: '#f9fafb', border: '0.5px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#6b7280' }}>
+                  <div style={{ fontWeight: 600, color: '#374151', marginBottom: 4 }}>CSV列：</div>
+                  personal_id, content_id, item_id, event, payload, client_time, created_at
+                </div>
+
+                <button
+                  disabled={exportLoading}
+                  onClick={async () => {
+                    setExportLoading(true);
+                    const params = new URLSearchParams();
+                    if (logFrom) params.set('from', logFrom);
+                    if (logTo) params.set('to', logTo);
+                    if (logContentId) params.set('contentId', logContentId);
+                    try {
+                      const res = await fetch(`/api/admin/logs/export?${params}`);
+                      if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
+                      const blob = await res.blob();
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `event_logs_${new Date().toISOString().slice(0, 10)}.csv`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      showToast('ダウンロードしました');
+                    } finally {
+                      setExportLoading(false);
+                    }
+                  }}
+                  style={{ ...btnPrimary, justifyContent: 'center', padding: '10px', opacity: exportLoading ? 0.6 : 1 }}
+                >
+                  <Download size={15} />
+                  {exportLoading ? 'エクスポート中...' : 'CSVをダウンロード'}
+                </button>
+              </div>
             </div>
           </div>
         )}
