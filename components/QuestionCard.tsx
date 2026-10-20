@@ -162,10 +162,10 @@ export default function QuestionCard({
         </div>
       ) : (
         <form onSubmit={handleSubmit}>
-          {activeFields.map(({ key, label, hint, required }) => (
+          {activeFields.map(({ key, label, hint, ...rest }) => (
             <div key={key} style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 3 }}>
-                {label}{(required as boolean | undefined) && <span style={{ color: '#ef4444', marginLeft: 3 }}>*</span>}
+                {label}{((rest as any).required) && <span style={{ color: '#ef4444', marginLeft: 3 }}>*</span>}
               </div>
               <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 5 }}>{hint}</div>
               {key === 'answer' ? (
