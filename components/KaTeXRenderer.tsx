@@ -9,11 +9,11 @@ export default function KaTeXRenderer({ content }: { content: string }) {
   useEffect(() => {
     if (!ref.current) return;
     let html = marked(content) as string;
-    html = html.replace(/\$\$(.+?)\$\$/gs, (_, math) => {
+    html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
       try { return katex.renderToString(math, { displayMode: true, throwOnError: false }); }
       catch { return math; }
     });
-    html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => { {
+    html = html.replace(/\$([^\$]+?)\$/g, (_, math) => {
       try { return katex.renderToString(math, { displayMode: false, throwOnError: false }); }
       catch { return math; }
     });
