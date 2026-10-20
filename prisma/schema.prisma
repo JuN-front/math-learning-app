@@ -13,13 +13,12 @@ model User {
   username    String
   password    String
   role        String   @default("user")
-  group       String?                        // ← 追加
+  group       String?
   created_at  DateTime @default(now())
 
   progress    Progress[]
-  assignments ItemSubmission[]
   event_logs  EventLog[]
-  responses   QuestionResponse[]             // ← 追加
+  responses   QuestionResponse[]
 }
 
 model Unit {
@@ -44,24 +43,24 @@ model Content {
   unit        Unit            @relation(fields: [unit_id], references: [id], onDelete: Cascade)
   items       ContentItem[]
   progress    Progress[]
-  submissions ItemSubmission[]
   event_logs  EventLog[]
-  questions   Question[] 
+  questions   Question[]
 }
 
 model ContentItem {
-  id         String   @id @default(cuid())
-  content_id String
-  type       String
-  label      String
-  file_path  String?
-  url        String?
-  order      Int      @default(0)
-  created_at DateTime @default(now())
+  id                   String   @id @default(cuid())
+  content_id           String
+  type                 String
+  label                String
+  file_path            String?
+  url                  String?
+  order                Int      @default(0)
+  unlock_after_item_id String?
+  question_id          String?
+  created_at           DateTime @default(now())
 
-  content     Content         @relation(fields: [content_id], references: [id], onDelete: Cascade)
-  submissions ItemSubmission[]
-  event_logs  EventLog[]
+  content    Content  @relation(fields: [content_id], references: [id], onDelete: Cascade)
+  event_logs EventLog[]
 }
 
 model Progress {
@@ -77,53 +76,20 @@ model Progress {
   @@unique([user_id, content_id])
 }
 
-model ItemSubmission {
-  id           String   @id @default(cuid())
-  user_id      String
-  content_id   String
-  item_id      String
-  file_path    String
-  filename     String
-  submitted_at DateTime @default(now())
-
-  user    User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  content Content     @relation(fields: [content_id], references: [id], onDelete: Cascade)
-  item    ContentItem @relation(fields: [item_id], references: [id], onDelete: Cascade)
-
-  @@unique([user_id, item_id])
-}
-
-model EventLog {
-  id          String   @id @default(cuid())
-  user_id     String
-  content_id  String?
-  item_id     String?
-  event       String
-  payload     Json?
-  client_time DateTime
-  created_at  DateTime @default(now())
-
-  user    User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  content Content?     @relation(fields: [content_id], references: [id], onDelete: SetNull)
-  item    ContentItem? @relation(fields: [item_id], references: [id], onDelete: SetNull)
-
-  @@index([user_id, content_id])
-}
-
 model Question {
   id               String    @id @default(cuid())
   content_id       String
   order            Int       @default(0)
-  phase            String                     // 'practice' | 'pre' | 'post'
+  phase            String
   body             String
-  answer_mode      String    @default("staged")  // 'staged' | 'simple'
+  answer_mode      String    @default("staged")
   accepted_answers String[]
   allow_attachment Boolean   @default(false)
   show_feedback    Boolean   @default(false)
   published        Boolean   @default(false)
-  level            String?                    // 'L0' | 'L1' | 'L2'。practice は null
-  set_key          String?                    // practice は null
-  groups           String[]  @default([])     // practice は空配列
+  level            String?
+  set_key          String?
+  groups           String[]  @default([])
   created_at       DateTime  @default(now())
   updated_at       DateTime  @updatedAt
 
@@ -147,11 +113,29 @@ model QuestionResponse {
   attachment_url      String?
   is_correct          Boolean
   is_correct_override Boolean?
-  started_at          DateTime
+  started_at          DateTime?
   submitted_at        DateTime  @default(now())
 
   user     User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
   question Question @relation(fields: [question_id], references: [id], onDelete: Cascade)
 
-  @@index([user_id, question_id])
+  @@index([question_id])
+  @@index([user_id])
+}
+
+model EventLog {
+  id          String   @id @default(cuid())
+  user_id     String
+  content_id  String?
+  item_id     String?
+  event       String
+  payload     Json?
+  client_time DateTime
+  created_at  DateTime @default(now())
+
+  user    User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  content Content?     @relation(fields: [content_id], references: [id], onDelete: SetNull)
+  item    ContentItem? @relation(fields: [item_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id, content_id])
 }

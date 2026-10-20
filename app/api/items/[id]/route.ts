@@ -10,11 +10,18 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   const { id } = await params;
-  const { type, label, url, order } = await request.json();
+  const { type, label, url, order, unlock_after_item_id, question_id } = await request.json();
 
   const item = await prisma.contentItem.update({
     where: { id },
-    data: { type, label, url: url ?? null, order },
+    data: {
+      type,
+      label,
+      url: url ?? null,
+      order,
+      unlock_after_item_id: unlock_after_item_id ?? null,
+      question_id: question_id ?? null,
+    },
   });
 
   return NextResponse.json(item);

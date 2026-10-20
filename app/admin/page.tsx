@@ -30,7 +30,8 @@ const QuestionsTab = dynamic(() => import('@/components/QuestionsTab'), { ssr: f
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface User { id: string; personal_id: string; username: string; role: string; created_at: string; }
-interface ContentItem { id: string; content_id: string; type: string; label: string; file_path?: string | null; url?: string | null; order: number; }
+interface ContentItem { id: string; content_id: string; type: string; label: string; file_path?: string | null; url?: string | null; order: number; unlock_after_item_id?: string | null; question_id?: string | null; }
+interface Question { id: string; content_id: string; body: string; phase: string; published: boolean; }
 interface Content { id: string; unit_id: string; title: string; description: string; order: number; lock_conditions: string[]; items: ContentItem[]; }
 interface Unit { id: string; title: string; description: string; order: number; contents: Content[]; }
 
@@ -84,16 +85,17 @@ function SortableContent({
 
   const typeBadge = (type: string) => {
     const map: Record<string, { bg: string; color: string; label: string }> = {
-      video: { bg: '#eff6ff', color: '#2563eb', label: '動画' },
-      pdf:   { bg: '#faf5ff', color: '#7c3aed', label: 'PDF' },
-      link:  { bg: '#f0fdf4', color: '#16a34a', label: 'リンク' },
+      video:    { bg: '#eff6ff', color: '#2563eb', label: '動画' },
+      pdf:      { bg: '#faf5ff', color: '#7c3aed', label: 'PDF' },
+      link:     { bg: '#f0fdf4', color: '#16a34a', label: 'リンク' },
+      question: { bg: '#fef3c7', color: '#d97706', label: '練習問題' },
     };
     const s = map[type] ?? { bg: '#f3f4f6', color: '#6b7280', label: type };
     return <span style={{ background: s.bg, color: s.color, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99 }}>{s.label}</span>;
   };
 
   const labelBadge = (label: string) => {
-    const map: Record<string, string> = { '学習用': '#2563eb', '課題用': '#c2410c', '解答用': '#16a34a', '参考資料': '#6b7280' };
+    const map: Record<string, string> = { '学習用': '#2563eb', '解答用': '#16a34a', '参考資料': '#6b7280' };
     return <span style={{ fontSize: 11, color: map[label] ?? '#6b7280', fontWeight: 500 }}>{label}</span>;
   };
 
@@ -189,9 +191,10 @@ export default function AdminPage() {
   const [userForm, setUserForm] = useState({ username: '', personal_id: '', password: '', role: 'user' });
   const [unitForm, setUnitForm] = useState({ title: '', description: '' });
   const [contentForm, setContentForm] = useState({ title: '', description: '', lock_conditions: [] as string[] });
-  const [itemForm, setItemForm] = useState({ type: 'pdf', label: '学習用', url: '' });
+  const [itemForm, setItemForm] = useState({ type: 'pdf', label: '学習用', url: '', unlock_after_item_id: '', question_id: '' });
   const [itemFile, setItemFile] = useState<File | null>(null);
   const [uploadingItem, setUploadingItem] = useState(false);
+  const [questions, setQuestions] = useState<Question[]>([]);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type });
   const f = { fontFamily: '"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP",Meiryo,sans-serif' };
@@ -213,6 +216,7 @@ export default function AdminPage() {
   const loadAll = () => {
     fetch('/api/admin/users').then(r => r.json()).then(setUsers);
     fetch('/api/units').then(r => r.json()).then(data => setUnits(Array.isArray(data) ? data : []));
+    fetch('/api/questions').then(r => r.json()).then(data => setQuestions(Array.isArray(data) ? data : []));
   };
 
   const allContents = units.flatMap(u => u.contents ?? []);
@@ -310,11 +314,23 @@ export default function AdminPage() {
     if (!showItemModal) return;
     setUploadingItem(true);
 
-    if (itemForm.type === 'link') {
+    const extraFields = {
+      unlock_after_item_id: itemForm.unlock_after_item_id || null,
+      question_id: itemForm.type === 'question' ? (itemForm.question_id || null) : null,
+    };
+
+    if (itemForm.type === 'question') {
       if (showItemModal.item) {
-        await fetch(`/api/items/${showItemModal.item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'link', label: itemForm.label, url: itemForm.url }) });
+        await fetch(`/api/items/${showItemModal.item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'question', label: itemForm.label, ...extraFields }) });
       } else {
-        await fetch('/api/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content_id: showItemModal.contentId, type: 'link', label: itemForm.label, url: itemForm.url }) });
+        await fetch('/api/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content_id: showItemModal.contentId, type: 'question', label: itemForm.label, ...extraFields }) });
+      }
+      showToast('保存しました');
+    } else if (itemForm.type === 'link') {
+      if (showItemModal.item) {
+        await fetch(`/api/items/${showItemModal.item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'link', label: itemForm.label, url: itemForm.url, ...extraFields }) });
+      } else {
+        await fetch('/api/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content_id: showItemModal.contentId, type: 'link', label: itemForm.label, url: itemForm.url, ...extraFields }) });
       }
       showToast('保存しました');
     } else if (itemFile) {
@@ -325,18 +341,19 @@ export default function AdminPage() {
       form.append('itemType', itemForm.type);
       form.append('label', itemForm.label);
       form.append('order', '0');
+      if (itemForm.unlock_after_item_id) form.append('unlock_after_item_id', itemForm.unlock_after_item_id);
       if (showItemModal.item) form.append('existingItemId', showItemModal.item.id);
       const res = await fetch('/api/upload', { method: 'POST', body: form });
       if (!res.ok) { showToast('アップロードに失敗しました', 'error'); setUploadingItem(false); return; }
       showToast('アップロード完了');
     } else if (showItemModal.item) {
-      await fetch(`/api/items/${showItemModal.item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: itemForm.type, label: itemForm.label }) });
+      await fetch(`/api/items/${showItemModal.item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: itemForm.type, label: itemForm.label, ...extraFields }) });
       showToast('更新しました');
     }
 
     setUploadingItem(false);
     setShowItemModal(null);
-    setItemForm({ type: 'pdf', label: '学習用', url: '' });
+    setItemForm({ type: 'pdf', label: '学習用', url: '', unlock_after_item_id: '', question_id: '' });
     setItemFile(null);
     loadAll();
   };
@@ -428,8 +445,8 @@ export default function AdminPage() {
                                   setShowContentModal(content.unit_id);
                                 }}
                                 onDelete={handleDeleteContent}
-                                onAddItem={(contentId) => { setShowItemModal({ contentId }); setItemForm({ type: 'pdf', label: '学習用', url: '' }); setItemFile(null); }}
-                                onEditItem={(contentId, item) => { setShowItemModal({ contentId, item }); setItemForm({ type: item.type, label: item.label, url: item.url ?? '' }); setItemFile(null); }}
+                                onAddItem={(contentId) => { setShowItemModal({ contentId }); setItemForm({ type: 'pdf', label: '学習用', url: '', unlock_after_item_id: '', question_id: '' }); setItemFile(null); }}
+                                onEditItem={(contentId, item) => { setShowItemModal({ contentId, item }); setItemForm({ type: item.type, label: item.label, url: item.url ?? '', unlock_after_item_id: item.unlock_after_item_id ?? '', question_id: item.question_id ?? '' }); setItemFile(null); }}
                                 onDeleteItem={handleDeleteItem}
                               />
                             ))}
@@ -659,52 +676,96 @@ export default function AdminPage() {
       )}
 
       {/* ── ITEM MODAL ── */}
-      {showItemModal && (
-        <Modal title={showItemModal.item ? 'アイテムを編集' : 'アイテムを追加'} onClose={() => { setShowItemModal(null); setItemFile(null); }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <label style={labelStyle}>種類</label>
-              <select value={itemForm.type} onChange={e => setItemForm(p => ({ ...p, type: e.target.value }))} style={inputStyle}>
-                <option value="pdf">PDF</option>
-                <option value="video">動画</option>
-                <option value="link">リンク（URL）</option>
-              </select>
-            </div>
-            <div>
-              <label style={labelStyle}>用途ラベル</label>
-              <select value={itemForm.label} onChange={e => setItemForm(p => ({ ...p, label: e.target.value }))} style={inputStyle}>
-                <option value="学習用">学習用</option>
-                <option value="課題用">課題用</option>
-                <option value="解答用">解答用</option>
-                <option value="参考資料">参考資料</option>
-              </select>
-            </div>
-            {itemForm.type === 'link' ? (
+      {showItemModal && (() => {
+        // All items in this content (for unlock selector)
+        const contentItems = allContents.find(c => c.id === showItemModal.contentId)?.items ?? [];
+        // Other items (can't unlock after itself)
+        const otherItems = contentItems.filter(i => i.id !== showItemModal.item?.id);
+        // Questions for this content
+        const contentQuestions = questions.filter(q => q.content_id === showItemModal.contentId && q.published);
+        return (
+          <Modal title={showItemModal.item ? 'アイテムを編集' : 'アイテムを追加'} onClose={() => { setShowItemModal(null); setItemFile(null); }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
-                <label style={labelStyle}>URL</label>
-                <input type="url" placeholder="https://..." value={itemForm.url} onChange={e => setItemForm(p => ({ ...p, url: e.target.value }))} style={inputStyle} />
+                <label style={labelStyle}>種類</label>
+                <select value={itemForm.type} onChange={e => setItemForm(p => ({ ...p, type: e.target.value }))} style={inputStyle}>
+                  <option value="pdf">PDF</option>
+                  <option value="video">動画</option>
+                  <option value="link">リンク（URL）</option>
+                  <option value="question">練習問題</option>
+                </select>
               </div>
-            ) : (
               <div>
-                <label style={labelStyle}>ファイル</label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px dashed #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>
-                  <Upload size={14} />
-                  {itemFile ? itemFile.name : showItemModal.item?.file_path ? '変更する（任意）' : 'ファイルを選択'}
-                  <input type="file" accept={itemForm.type === 'video' ? 'video/*' : '.pdf'} style={{ display: 'none' }}
-                    onChange={e => setItemFile(e.target.files?.[0] ?? null)} />
-                </label>
-                {showItemModal.item?.file_path && !itemFile && (
-                  <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>現在: {showItemModal.item.file_path.split('/').pop()}</p>
-                )}
+                <label style={labelStyle}>用途ラベル</label>
+                <select value={itemForm.label} onChange={e => setItemForm(p => ({ ...p, label: e.target.value }))} style={inputStyle}>
+                  <option value="学習用">学習用</option>
+                  <option value="解答用">解答用</option>
+                  <option value="参考資料">参考資料</option>
+                </select>
               </div>
-            )}
-            <button onClick={handleSaveItem} disabled={uploadingItem}
-              style={{ ...btnPrimary, width: '100%', justifyContent: 'center', padding: '10px', opacity: uploadingItem ? 0.6 : 1 }}>
-              <Save size={15} /> {uploadingItem ? '処理中...' : showItemModal.item ? '更新する' : '追加する'}
-            </button>
-          </div>
-        </Modal>
-      )}
+
+              {/* Question selector */}
+              {itemForm.type === 'question' && (
+                <div>
+                  <label style={labelStyle}>問題を選択</label>
+                  {contentQuestions.length === 0 ? (
+                    <p style={{ fontSize: 12, color: '#9ca3af', padding: '8px 12px', background: '#f9fafb', borderRadius: 8, border: '0.5px solid #e5e7eb' }}>
+                      このコンテンツに公開済みの練習問題がありません。問題管理タブで作成・公開してください。
+                    </p>
+                  ) : (
+                    <select value={itemForm.question_id} onChange={e => setItemForm(p => ({ ...p, question_id: e.target.value }))} style={inputStyle}>
+                      <option value="">問題を選択...</option>
+                      {contentQuestions.map(q => (
+                        <option key={q.id} value={q.id}>{q.body.slice(0, 60)}{q.body.length > 60 ? '…' : ''}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {/* File / URL */}
+              {itemForm.type === 'link' ? (
+                <div>
+                  <label style={labelStyle}>URL</label>
+                  <input type="url" placeholder="https://..." value={itemForm.url} onChange={e => setItemForm(p => ({ ...p, url: e.target.value }))} style={inputStyle} />
+                </div>
+              ) : itemForm.type !== 'question' ? (
+                <div>
+                  <label style={labelStyle}>ファイル</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px dashed #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>
+                    <Upload size={14} />
+                    {itemFile ? itemFile.name : showItemModal.item?.file_path ? '変更する（任意）' : 'ファイルを選択'}
+                    <input type="file" accept={itemForm.type === 'video' ? 'video/*' : '.pdf'} style={{ display: 'none' }}
+                      onChange={e => setItemFile(e.target.files?.[0] ?? null)} />
+                  </label>
+                  {showItemModal.item?.file_path && !itemFile && (
+                    <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>現在: {showItemModal.item.file_path.split('/').pop()}</p>
+                  )}
+                </div>
+              ) : null}
+
+              {/* Unlock after */}
+              {otherItems.length > 0 && (
+                <div>
+                  <label style={labelStyle}><Lock size={12} style={{ display: 'inline', marginRight: 4 }} />アンロック条件（任意）</label>
+                  <select value={itemForm.unlock_after_item_id} onChange={e => setItemForm(p => ({ ...p, unlock_after_item_id: e.target.value }))} style={inputStyle}>
+                    <option value="">条件なし（最初から表示）</option>
+                    {otherItems.map(i => (
+                      <option key={i.id} value={i.id}>{i.label}：{i.type === 'question' ? '練習問題' : (i.file_path?.split('/').pop() ?? i.url ?? i.type)}</option>
+                    ))}
+                  </select>
+                  <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>選択したアイテムがクリックされた後に表示されます</p>
+                </div>
+              )}
+
+              <button onClick={handleSaveItem} disabled={uploadingItem}
+                style={{ ...btnPrimary, width: '100%', justifyContent: 'center', padding: '10px', opacity: uploadingItem ? 0.6 : 1 }}>
+                <Save size={15} /> {uploadingItem ? '処理中...' : showItemModal.item ? '更新する' : '追加する'}
+              </button>
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }

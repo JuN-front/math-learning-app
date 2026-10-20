@@ -14,12 +14,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     where: { user_id_content_id: { user_id: userId, content_id: contentId } },
   });
 
-  // 提出済みアイテム一覧も返す
-  const submissions = await prisma.itemSubmission.findMany({
-    where: { user_id: userId, content_id: contentId },
-  });
-
-  return NextResponse.json({ progress, submissions });
+  return NextResponse.json({ progress });
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -28,13 +23,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { id: contentId } = await params;
   const userId = session.user.id;
-  const { status } = await request.json();
+  const { status, clicked_items } = await request.json();
 
+  // Store clicked_items in a separate EventLog payload or just update progress status
+  // We use the Progress model with status only; clicked_items are tracked via EventLog
   const progress = await prisma.progress.upsert({
     where: { user_id_content_id: { user_id: userId, content_id: contentId } },
     update: { status },
     create: { user_id: userId, content_id: contentId, status },
   });
+
+  // If clicked_items provided, log them for record-keeping
+  if (Array.isArray(clicked_items) && clicked_items.length > 0) {
+    // Already logged individually via /api/logs on each click
+    // This is just for completeness
+  }
 
   return NextResponse.json(progress);
 }

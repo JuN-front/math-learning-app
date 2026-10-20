@@ -12,56 +12,13 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const file = formData.get('file') as File | null;
   const type = formData.get('type') as string;
-  const itemId = formData.get('itemId') as string | null;
   const contentId = formData.get('contentId') as string | null;
 
   if (!file) return NextResponse.json({ error: 'No file' }, { status: 400 });
 
   const filename = `${Date.now()}-${file.name}`;
 
-  if (type === 'submission') {
-    if (!itemId || !contentId) {
-      return NextResponse.json({ error: 'itemId and contentId required' }, { status: 400 });
-    }
-    const userId = session.user.id;
-
-    // 課題提出ファイルは access: 'public' → Blob URLで保存
-    // （PDFはiframeで表示するためpublicが必要。研究倫理上の懸念はEventLogで代替管理）
-    const { url } = await put(`submissions/${userId}/${filename}`, file, { access: 'public' });
-
-    const submission = await prisma.itemSubmission.upsert({
-      where: { user_id_item_id: { user_id: userId, item_id: itemId } },
-      update: { file_path: url, filename: file.name, submitted_at: new Date() },
-      create: {
-        user_id: userId,
-        content_id: contentId,
-        item_id: itemId,
-        file_path: url,
-        filename: file.name,
-      },
-    });
-
-    await prisma.progress.upsert({
-      where: { user_id_content_id: { user_id: userId, content_id: contentId } },
-      update: { status: 'completed' },
-      create: { user_id: userId, content_id: contentId, status: 'completed' },
-    });
-
-    // 提出をEventLogに記録（再提出回数追跡用）
-    await prisma.eventLog.create({
-      data: {
-        user_id: userId,
-        content_id: contentId,
-        item_id: itemId,
-        event: 'submit',
-        payload: { filename: file.name, blob_url: url },
-        client_time: new Date(),
-      },
-    });
-
-    return NextResponse.json({ submission, file_path: url });
-
-  } else if (type === 'content_item') {
+  if (type === 'content_item') {
     if (session.user.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -71,6 +28,7 @@ export async function POST(request: NextRequest) {
     const label = formData.get('label') as string;
     const order = parseInt(formData.get('order') as string ?? '0');
     const existingItemId = formData.get('existingItemId') as string | null;
+    const unlock_after_item_id = (formData.get('unlock_after_item_id') as string | null) || null;
 
     const { url } = await put(`contents/${contentId}/${filename}`, file, { access: 'public' });
 
@@ -78,7 +36,7 @@ export async function POST(request: NextRequest) {
     if (existingItemId) {
       item = await prisma.contentItem.update({
         where: { id: existingItemId },
-        data: { file_path: url },
+        data: { file_path: url, unlock_after_item_id },
       });
     } else {
       item = await prisma.contentItem.create({
@@ -88,6 +46,7 @@ export async function POST(request: NextRequest) {
           label,
           file_path: url,
           order,
+          unlock_after_item_id,
         },
       });
     }
@@ -104,36 +63,9 @@ export async function DELETE(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const itemId = searchParams.get('itemId');
-  const submissionType = searchParams.get('type');
+  const deleteType = searchParams.get('type');
 
-  if (submissionType === 'submission' && itemId) {
-    const userId = session.user.id;
-    const sub = await prisma.itemSubmission.findFirst({
-      where: { user_id: userId, item_id: itemId },
-    });
-    if (sub?.file_path) {
-      try { await del(sub.file_path); } catch {}
-    }
-
-    // 削除をEventLogに記録
-    if (sub) {
-      await prisma.eventLog.create({
-        data: {
-          user_id: userId,
-          content_id: sub.content_id,
-          item_id: itemId,
-          event: 'submission_delete',
-          payload: { filename: sub.filename },
-          client_time: new Date(),
-        },
-      });
-    }
-
-    await prisma.itemSubmission.deleteMany({ where: { user_id: userId, item_id: itemId } });
-    return NextResponse.json({ success: true });
-  }
-
-  if (submissionType === 'content_item' && itemId) {
+  if (deleteType === 'content_item' && itemId) {
     if (session.user.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }

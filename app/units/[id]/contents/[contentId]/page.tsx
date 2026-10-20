@@ -5,24 +5,19 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import Header from '@/components/Header';
-import { ChevronLeft, Play, FileText, Upload, CheckCircle, Lock, AlertCircle } from 'lucide-react';
+import { ChevronLeft, Play, FileText, CheckCircle, Lock } from 'lucide-react';
+
 const QuestionCard = dynamic(() => import('@/components/QuestionCard'), { ssr: false });
 
 interface ContentItem {
   id: string;
-  type: string;
-  label: string;
+  type: string;   // 'video' | 'pdf' | 'link' | 'question'
+  label: string;  // '学習用' | '解答用' | '参考資料'
   file_path?: string | null;
   url?: string | null;
   order: number;
-}
-
-interface Submission {
-  id: string;
-  item_id: string;
-  file_path: string;
-  filename: string;
-  submitted_at: string;
+  unlock_after_item_id?: string | null;
+  question_id?: string | null;
 }
 
 interface ContentDetail {
@@ -43,52 +38,55 @@ export default function ContentPage({ params }: { params: Promise<{ id: string; 
   const [contentId, setContentId] = useState('');
   const [content, setContent] = useState<ContentDetail | null>(null);
   const [progressStatus, setProgressStatus] = useState('not_started');
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [clickedItems, setClickedItems] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [uploadLoading, setUploadLoading] = useState<string | null>(null);
-  const [uploadError, setUploadError] = useState('');
-  const [questions, setQuestions] = useState<any[]>([]);
-  const [userGroup, setUserGroup] = useState<string | null>(null);
 
   useEffect(() => { params.then(({ id, contentId }) => { setUnitId(id); setContentId(contentId); }); }, [params]);
   useEffect(() => { if (status === 'unauthenticated') router.push('/login'); }, [status, router]);
 
   const fetchData = async (cid: string) => {
-    const [contentRes, progressRes, questionsRes] = await Promise.all([
+    const [contentRes, progressRes] = await Promise.all([
       fetch(`/api/contents/${cid}`).then(r => r.json()),
       fetch(`/api/contents/${cid}/progress`).then(r => r.json()),
-      fetch(`/api/questions/${cid}`).then(r => r.json()),
     ]);
     setContent(contentRes);
     setProgressStatus(progressRes.progress?.status ?? 'not_started');
-    setSubmissions(progressRes.submissions ?? []);
-    setQuestions(questionsRes.questions ?? []);
-    setUserGroup(questionsRes.userGroup ?? null);
     setLoading(false);
   };
 
   useEffect(() => { if (status === 'authenticated' && contentId) fetchData(contentId); }, [status, contentId]);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, item: ContentItem) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadLoading(item.id);
-    setUploadError('');
-    const form = new FormData();
-    form.append('file', file);
-    form.append('type', 'submission');
-    form.append('itemId', item.id);
-    form.append('contentId', contentId);
-    const res = await fetch('/api/upload', { method: 'POST', body: form });
-    setUploadLoading(null);
-    if (!res.ok) setUploadError('アップロードに失敗しました。再度お試しください。');
-    else fetchData(contentId);
-  };
+  // Called when a student clicks/completes an item
+  const handleItemClick = async (item: ContentItem) => {
+    if (clickedItems.has(item.id)) return; // already clicked
+    const newClicked = new Set(clickedItems);
+    newClicked.add(item.id);
+    setClickedItems(newClicked);
 
-  const handleDelete = async (itemId: string) => {
-    if (!confirm('提出した課題を削除しますか？')) return;
-    await fetch(`/api/upload?type=submission&itemId=${itemId}`, { method: 'DELETE' });
-    fetchData(contentId);
+    // Log event
+    await fetch('/api/logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        events: [{
+          event: 'item_completed',
+          contentId: contentId,
+          itemId: item.id,
+          client_time: new Date().toISOString(),
+          payload: { type: item.type },
+        }],
+      }),
+    });
+
+    // Update progress status to completed (clicking any item = completed)
+    if (progressStatus !== 'completed') {
+      setProgressStatus('completed');
+      await fetch(`/api/contents/${contentId}/progress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'completed' }),
+      });
+    }
   };
 
   if (loading) return (
@@ -100,10 +98,101 @@ export default function ContentPage({ params }: { params: Promise<{ id: string; 
 
   const isCompleted = progressStatus === 'completed';
 
-  const studyItems = content.items.filter(i => i.label === '学習用' || i.label === '参考資料');
-  const assignmentItems = content.items.filter(i => i.label === '課題用');
-  const answerItems = content.items.filter(i => i.label === '解答用');
-  const hasSubmission = submissions.length > 0;
+  // Sort items by order
+  const sortedItems = [...(content.items ?? [])].sort((a, b) => a.order - b.order);
+
+  // Check if an item is unlocked
+  const isUnlocked = (item: ContentItem): boolean => {
+    if (!item.unlock_after_item_id) return true;
+    return clickedItems.has(item.unlock_after_item_id);
+  };
+
+  const renderItem = (item: ContentItem) => {
+    const unlocked = isUnlocked(item);
+
+    if (!unlocked) {
+      // Find what unlocks this
+      const prerequisite = sortedItems.find(i => i.id === item.unlock_after_item_id);
+      return (
+        <div key={item.id} style={{ background: '#f9fafb', border: '0.5px solid #e5e7eb', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, opacity: 0.6 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#f3f4f6', color: '#9ca3af', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Lock size={18} />
+          </div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#6b7280', marginBottom: 2 }}>{item.label}</div>
+            {prerequisite && (
+              <div style={{ fontSize: 12, color: '#9ca3af' }}>「{prerequisite.label}」を完了するとアンロックされます</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (item.type === 'question') {
+      if (!item.question_id) return null;
+      return (
+        <div key={item.id} onClick={() => handleItemClick(item)}>
+          <QuestionCard questionId={item.question_id} onAnswered={() => handleItemClick(item)} />
+        </div>
+      );
+    }
+
+    const isVideo = item.type === 'video';
+    const isPdf = item.type === 'pdf';
+    const isLink = item.type === 'link';
+    const isDone = clickedItems.has(item.id);
+
+    const href = isVideo
+      ? `/units/${unitId}/contents/${contentId}/video?itemId=${item.id}`
+      : isPdf
+      ? `/units/${unitId}/contents/${contentId}/pdf?itemId=${item.id}`
+      : (item.url ?? '#');
+
+    const iconBg = isVideo ? '#eff6ff' : isPdf ? '#faf5ff' : '#f0fdf4';
+    const iconColor = isVideo ? '#2563eb' : isPdf ? '#7c3aed' : '#16a34a';
+    const Icon = isVideo ? Play : FileText;
+    const actionLabel = isVideo ? '動画を視聴 →' : isPdf ? 'テキストを閲覧 →' : 'リンクを開く →';
+    const itemTitle = item.label === '学習用'
+      ? (isVideo ? '学習動画' : '学習テキスト')
+      : item.label;
+
+    const handleClick = () => {
+      handleItemClick(item);
+    };
+
+    return (
+      <div key={item.id} style={{ background: '#fff', border: `0.5px solid ${isDone ? '#bbf7d0' : '#e5e7eb'}`, borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, transition: 'border-color 0.2s' }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: iconBg, color: iconColor, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon size={18} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {itemTitle}
+            {isDone && <CheckCircle size={14} color="#16a34a" />}
+          </div>
+        </div>
+        <div style={{ flexShrink: 0 }}>
+          {(item.file_path || item.url) ? (
+            isLink ? (
+              <a href={href} target="_blank" rel="noopener noreferrer"
+                onClick={handleClick}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 8, background: '#0f1c2e', color: '#e8edf4', fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>
+                {actionLabel}
+              </a>
+            ) : (
+              <Link href={href}
+                onClick={handleClick}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 8, background: '#0f1c2e', color: '#e8edf4', fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>
+                {actionLabel}
+              </Link>
+            )
+          ) : (
+            <span style={{ fontSize: 12, color: '#d1d5db' }}>未アップロード</span>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f7fa', ...f }}>
@@ -132,153 +221,14 @@ export default function ContentPage({ params }: { params: Promise<{ id: string; 
       </div>
 
       <div style={{ padding: '24px 28px', maxWidth: 760 }}>
-
-        {/* 学習コンテンツ */}
-        {studyItems.length > 0 && (
-          <>
-            <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-              学習コンテンツ <div style={{ flex: 1, height: '0.5px', background: '#e5e7eb' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
+          {sortedItems.map(item => renderItem(item))}
+          {sortedItems.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '32px 0', color: '#9ca3af', fontSize: 13 }}>
+              コンテンツが追加されていません
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
-              {studyItems.map(item => {
-                const isVideo = item.type === 'video';
-                const href = isVideo
-                  ? `/units/${unitId}/contents/${contentId}/video?itemId=${item.id}`
-                  : `/units/${unitId}/contents/${contentId}/pdf?itemId=${item.id}`;
-                return (
-                  <div key={item.id} style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 10, background: isVideo ? '#eff6ff' : '#faf5ff', color: isVideo ? '#2563eb' : '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      {isVideo ? <Play size={18} /> : <FileText size={18} />}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 3 }}>
-                        {item.label === '学習用' ? (isVideo ? '学習動画' : '学習テキスト') : item.label}
-                      </div>
-                    </div>
-                    <div style={{ flexShrink: 0 }}>
-                      {item.file_path || item.url ? (
-                        <Link href={href}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 8, background: '#0f1c2e', color: '#e8edf4', fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>
-                          {isVideo ? '動画を視聴 →' : 'テキストを閲覧 →'}
-                        </Link>
-                      ) : (
-                        <span style={{ fontSize: 12, color: '#d1d5db' }}>未アップロード</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-
-        {/* 課題提出 */}
-        {assignmentItems.length > 0 && (
-          <>
-            <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-              課題提出 <div style={{ flex: 1, height: '0.5px', background: '#e5e7eb' }} />
-            </div>
-            {assignmentItems.map(item => {
-              const submission = submissions.find(s => s.item_id === item.id);
-              return (
-                <div key={item.id} style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, padding: '16px 20px', marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 10, background: '#fff7ed', color: '#c2410c', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <Upload size={18} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 3 }}>課題ファイルの提出</div>
-                      <div style={{ fontSize: 12, color: submission ? '#16a34a' : '#9ca3af' }}>
-                        {submission ? '✓ 提出済み' : '未提出'}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {item.file_path && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#faf5ff', border: '0.5px solid #e9d5ff', borderRadius: 8 }}>
-                        <span style={{ fontSize: 13, color: '#7c3aed', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <FileText size={14} /> 課題テキストを確認
-                        </span>
-                        <Link href={`/units/${unitId}/contents/${contentId}/pdf?itemId=${item.id}`}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 8, background: '#f3f4f6', color: '#374151', fontSize: 12, fontWeight: 500, textDecoration: 'none', border: '0.5px solid #e5e7eb' }}>
-                          開く →
-                        </Link>
-                      </div>
-                    )}
-
-                    {submission && (
-                      <div style={{ background: '#f0fdf4', border: '0.5px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 500, color: '#15803d', display: 'flex', alignItems: 'center', gap: 5 }}>
-                            📎 {submission.filename}
-                          </div>
-                          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                            {new Date(submission.submitted_at).toLocaleString('ja-JP')} 提出
-                          </div>
-                        </div>
-                        <button onClick={() => handleDelete(item.id)} style={{ fontSize: 12, color: '#ef4444', background: 'none', border: '0.5px solid #fecaca', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                          削除
-                        </button>
-                      </div>
-                    )}
-
-                    {uploadError && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', background: '#fef2f2', border: '0.5px solid #fecaca', borderRadius: 8, fontSize: 12, color: '#dc2626' }}>
-                        <AlertCircle size={13} /> {uploadError}
-                      </div>
-                    )}
-
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, background: '#f3f4f6', color: uploadLoading === item.id ? '#9ca3af' : '#374151', border: '0.5px solid #e5e7eb', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
-                      <Upload size={14} />
-                      {uploadLoading === item.id ? 'アップロード中...' : submission ? '再提出する' : 'ファイルを選択して提出'}
-                      <input type="file" style={{ display: 'none' }} onChange={e => handleUpload(e, item)} disabled={uploadLoading === item.id} />
-                    </label>
-                  </div>
-                </div>
-              );
-            })}
-          </>
-        )}
-
-        {/* 解答（提出後に表示） */}
-        {answerItems.length > 0 && hasSubmission && (
-          <>
-            <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-              解答 <div style={{ flex: 1, height: '0.5px', background: '#e5e7eb' }} />
-            </div>
-            {answerItems.map(item => (
-              <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f0fdf4', border: '0.5px solid #bbf7d0', borderRadius: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 13, color: '#16a34a', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <CheckCircle size={14} /> 解答を確認する
-                </span>
-                {item.file_path && (
-                  <Link href={`/units/${unitId}/contents/${contentId}/pdf?itemId=${item.id}`}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 8, background: '#f3f4f6', color: '#374151', fontSize: 12, fontWeight: 500, textDecoration: 'none', border: '0.5px solid #e5e7eb' }}>
-                    開く →
-                  </Link>
-                )}
-              </div>
-            ))}
-          </>
-        )}
-
-        {/* 解答フォーム */}
-        {questions.length > 0 && (
-          <div style={{ marginTop: 28 }}>
-            <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-              解答フォーム <div style={{ flex: 1, height: '0.5px', background: '#e5e7eb' }} />
-            </div>
-            {!userGroup && questions.some((q: any) => q.phase !== 'practice') && (
-              <div style={{ fontSize: 13, color: '#9ca3af', padding: '12px 16px', background: '#f9fafb', borderRadius: 8, marginBottom: 12 }}>
-                テスト問題は準備中です。しばらくお待ちください。
-              </div>
-            )}
-            {questions.map((q: any) => (
-              <QuestionCard key={q.id} question={q} contentId={contentId} />
-            ))}
-          </div>
-        )}
+          )}
+        </div>
 
         <Link href={`/units/${unitId}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#378ADD', textDecoration: 'none', marginTop: 8 }}>
           <ChevronLeft size={14} /> 単元ページに戻る

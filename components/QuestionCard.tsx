@@ -1,205 +1,196 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { logEvent } from '@/lib/logger';
-const KaTeXRenderer = dynamic(() => import('./KaTeXRenderer'), { ssr: false });
+import { CheckCircle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
-interface Question {
+const KaTeXRenderer = dynamic(() => import('@/components/KaTeXRenderer'), { ssr: false });
+
+interface QuestionData {
   id: string;
   body: string;
-  phase: string;
-  answer_mode: 'staged' | 'simple';
-  allow_attachment: boolean;
+  answer_mode: string;  // 'staged' | 'direct'
   show_feedback: boolean;
+  allow_attachment: boolean;
+  phase: string;
 }
 
-const STAGED_FIELDS = [
-  { key: 'understanding', label: '理解', hint: 'この問題は、結局何を求めればよい？ 自分の言葉で言い換えよう' },
-  { key: 'extraction',   label: '抽出', hint: '問題文から、使う情報や条件を書き出そう' },
-  { key: 'equation',     label: '式化', hint: 'どんな式・考え方で解く？' },
-  { key: 'answer',       label: '解答', hint: '最終的な答えを記入してください（必須）', required: true },
-  { key: 'check',        label: '確認', hint: 'その答えが正しいことを、どうやって確かめた？' },
-] as const;
-type FieldKey = 'understanding' | 'extraction' | 'equation' | 'answer' | 'check';
+interface Props {
+  questionId: string;
+  onAnswered?: () => void;
+}
 
 const f = { fontFamily: '"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP",Meiryo,sans-serif' };
 
-export default function QuestionCard({
-  question, contentId, isPreview = false
-}: {
-  question: Question; contentId: string; isPreview?: boolean;
-}) {
-  const storageKey = `qcard_${question.id}`;
-  const [fields, setFields] = useState<Record<FieldKey, string>>({
-    understanding: '', extraction: '', equation: '', answer: '', check: '',
-  });
-  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
-  const [attachmentName, setAttachmentName] = useState<string | null>(null);
+export default function QuestionCard({ questionId, onAnswered }: Props) {
+  const [question, setQuestion] = useState<QuestionData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [expanded, setExpanded] = useState(false);
+
+  // Staged answer fields
+  const [understanding, setUnderstanding] = useState('');
+  const [extraction, setExtraction] = useState('');
+  const [equation, setEquation] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [check, setCheck] = useState('');
+
+  // Direct answer field
+  const [directAnswer, setDirectAnswer] = useState('');
+
   const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
-  const [attachUploading, setAttachUploading] = useState(false);
-  const startedAt = useRef(new Date().toISOString());
-  const editCount = useRef({ inputs: 0, deletes: 0 });
+  const [result, setResult] = useState<{ is_correct: boolean; message?: string } | null>(null);
+  const [answered, setAnswered] = useState(false);
 
   useEffect(() => {
-    if (!isPreview) {
-      try {
-        const saved = localStorage.getItem(storageKey);
-        if (saved) setFields(prev => ({ ...prev, ...JSON.parse(saved) }));
-      } catch {}
-    }
-    logEvent('question_open', {
-      contentId,
-      payload: { questionId: question.id, phase: question.phase },
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    fetch(`/api/questions/${questionId}`)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(data => { setQuestion(data); setLoading(false); })
+      .catch(() => { setError('問題の取得に失敗しました'); setLoading(false); });
+  }, [questionId]);
 
-  const saveLocal = (updated: Record<FieldKey, string>) => {
-    if (isPreview) return;
-    try { localStorage.setItem(storageKey, JSON.stringify(updated)); } catch {}
-  };
-
-  const handleChange = (key: FieldKey, value: string) => {
-    const updated = { ...fields, [key]: value };
-    setFields(updated);
-    saveLocal(updated);
-  };
-
-  const handleFocus = (key: string) => {
-    editCount.current = { inputs: 0, deletes: 0 };
-    logEvent('field_focus', { contentId, payload: { questionId: question.id, phase: question.phase, field: key } });
-  };
-
-  const handleInput = (e: React.FormEvent) => {
-    const native = e.nativeEvent as InputEvent;
-    editCount.current.inputs++;
-    if (native.inputType?.startsWith('delete')) editCount.current.deletes++;
-  };
-
-  const handleBlur = (key: string, value: string) => {
-    logEvent('field_blur', { contentId, payload: { questionId: question.id, phase: question.phase, field: key, snapshot: value, length: value.length } });
-    logEvent('field_edit_summary', { contentId, payload: { questionId: question.id, phase: question.phase, field: key, inputs: editCount.current.inputs, deletes: editCount.current.deletes } });
-  };
-
-  const handleAttachUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setAttachUploading(true);
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('type', 'question_attachment');
-    fd.append('questionId', question.id);
-    const res = await fetch('/api/upload', { method: 'POST', body: fd });
-    const data = await res.json();
-    setAttachmentUrl(data.file_path);
-    setAttachmentName(file.name);
-    logEvent('attachment_upload', { contentId, payload: { questionId: question.id, filename: file.name, url: data.file_path } });
-    setAttachUploading(false);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!fields.answer.trim()) return;
+  const handleSubmit = async () => {
+    if (!question) return;
     setSubmitting(true);
-    const res = await fetch(`/api/questions/${contentId}/respond`, {
+    const body = question.answer_mode === 'staged'
+      ? { understanding, extraction, equation, answer, check }
+      : { answer: directAnswer };
+
+    const res = await fetch(`/api/questions/${questionId}/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        questionId: question.id,
-        ...(question.answer_mode === 'staged' ? {
-          understanding: fields.understanding,
-          extraction: fields.extraction,
-          equation: fields.equation,
-          check: fields.check,
-        } : {}),
-        answer: fields.answer,
-        attachment_url: attachmentUrl,
-        started_at: startedAt.current,
-        isPreview,
-      }),
+      body: JSON.stringify(body),
     });
-    const data = await res.json();
-    setSubmitted(true);
-    if (question.show_feedback) setIsCorrect(data.response?.is_correct ?? null);
-    logEvent('answer_submit', { contentId, payload: { questionId: question.id, phase: question.phase, attempt: data.response?.attempt, is_correct: data.response?.is_correct } });
-    if (!isPreview) {
-      try { localStorage.removeItem(storageKey); } catch {}
-    }
     setSubmitting(false);
+    if (!res.ok) { setError('送信に失敗しました'); return; }
+    const data = await res.json();
+    setResult(data);
+    if (!answered) {
+      setAnswered(true);
+      onAnswered?.();
+    }
   };
 
-  const phaseLabel = { pre: '事前テスト', practice: '演習', post: '事後テスト' }[question.phase] ?? question.phase;
-  const activeFields = question.answer_mode === 'staged' ? STAGED_FIELDS : STAGED_FIELDS.filter(f => f.key === 'answer');
+  if (loading) return (
+    <div style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, padding: '16px 20px', fontSize: 13, color: '#9ca3af', ...f }}>
+      問題を読み込み中...
+    </div>
+  );
+
+  if (error || !question) return (
+    <div style={{ background: '#fef2f2', border: '0.5px solid #fecaca', borderRadius: 12, padding: '16px 20px', fontSize: 13, color: '#dc2626', ...f }}>
+      {error || '問題が見つかりません'}
+    </div>
+  );
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '8px 12px',
+    border: '1px solid #d1d5db',
+    borderRadius: 8,
+    fontSize: 13,
+    outline: 'none',
+    boxSizing: 'border-box',
+    fontFamily: 'inherit',
+    resize: 'vertical' as const,
+    minHeight: 60,
+  };
+  const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 };
 
   return (
-    <div style={{ border: '0.5px solid #e5e7eb', borderRadius: 12, padding: '20px 22px', background: isPreview ? '#fefce8' : '#fff', marginBottom: 12, ...f }}>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center' }}>
-        <span style={{ fontSize: 11, background: '#eff6ff', color: '#2563eb', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>{phaseLabel}</span>
-        {isPreview && <span style={{ fontSize: 11, background: '#fef3c7', color: '#d97706', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>プレビュー</span>}
-      </div>
-
-      <div style={{ marginBottom: 20, fontSize: 14, lineHeight: 1.7, color: '#111827' }}>
-        <KaTeXRenderer content={question.body} />
-      </div>
-
-      {submitted ? (
-        <div style={{ textAlign: 'center', padding: '16px 0' }}>
-          {question.show_feedback && isCorrect !== null ? (
-            isCorrect
-              ? <p style={{ color: '#16a34a', fontWeight: 700 }}>✓ 正解です！</p>
-              : <p style={{ color: '#dc2626', fontWeight: 700 }}>✗ 不正解です。</p>
-          ) : (
-            <p style={{ color: '#6b7280' }}>解答を提出しました。</p>
-          )}
-          <button
-            style={{ marginTop: 10, fontSize: 12, color: '#378ADD', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontFamily: 'inherit' }}
-            onClick={() => { setSubmitted(false); startedAt.current = new Date().toISOString(); }}
-          >
-            再提出する
-          </button>
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit}>
-          {activeFields.map(({ key, label, hint, ...rest }) => (
-            <div key={key} style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 3 }}>
-                {label}{((rest as any).required) && <span style={{ color: '#ef4444', marginLeft: 3 }}>*</span>}
+    <div style={{ background: '#fff', border: '0.5px solid #fde68a', borderRadius: 12, overflow: 'hidden', ...f }}>
+      {/* Header */}
+      <div
+        style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', background: '#fffbeb' }}
+        onClick={() => setExpanded(v => !v)}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 8, background: '#fef3c7', color: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
+            ✏️
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>練習問題</div>
+            {answered && (
+              <div style={{ fontSize: 11, color: result?.is_correct ? '#16a34a' : '#dc2626', display: 'flex', alignItems: 'center', gap: 3, marginTop: 2 }}>
+                {result?.is_correct ? <><CheckCircle size={11} /> 正解！</> : <><XCircle size={11} /> 不正解</>}
               </div>
-              <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 5 }}>{hint}</div>
-              {key === 'answer' ? (
-                <input type="text" value={fields[key as FieldKey]}
-                  onChange={e => handleChange(key as FieldKey, e.target.value)}
-                  onFocus={() => handleFocus(key)} onInput={handleInput}
-                  onBlur={e => handleBlur(key, e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', fontFamily: 'inherit' }}
-                  required />
-              ) : (
-                <textarea rows={3} value={fields[key as FieldKey]}
-                  onChange={e => handleChange(key as FieldKey, e.target.value)}
-                  onFocus={() => handleFocus(key)} onInput={handleInput}
-                  onBlur={e => handleBlur(key, e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }} />
-              )}
-            </div>
-          ))}
+            )}
+          </div>
+        </div>
+        {expanded ? <ChevronUp size={16} color="#9ca3af" /> : <ChevronDown size={16} color="#9ca3af" />}
+      </div>
 
-          {question.allow_attachment && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>計算過程（画像/PDF）</div>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', border: '1px dashed #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: '#6b7280' }}>
-                {attachUploading ? 'アップロード中…' : attachmentName ? `✓ ${attachmentName}` : 'ファイルを選択'}
-                <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleAttachUpload} />
-              </label>
+      {/* Body */}
+      {expanded && (
+        <div style={{ padding: '20px 20px', borderTop: '0.5px solid #fde68a' }}>
+          {/* Question body */}
+          <div style={{ marginBottom: 20, padding: '14px 16px', background: '#fafafa', borderRadius: 8, border: '0.5px solid #e5e7eb' }}>
+            <KaTeXRenderer content={question.body} />
+          </div>
+
+          {result ? (
+            /* Result view */
+            <div style={{ padding: '14px 16px', borderRadius: 8, background: result.is_correct ? '#f0fdf4' : '#fef2f2', border: `0.5px solid ${result.is_correct ? '#bbf7d0' : '#fecaca'}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: result.is_correct ? '#15803d' : '#dc2626', fontSize: 14 }}>
+                {result.is_correct ? <CheckCircle size={16} /> : <XCircle size={16} />}
+                {result.is_correct ? '正解です！' : '不正解です'}
+              </div>
+              {result.message && (
+                <div style={{ marginTop: 8, fontSize: 13, color: '#374151' }}>
+                  <KaTeXRenderer content={result.message} />
+                </div>
+              )}
+              <button
+                onClick={() => { setResult(null); setAnswer(''); setDirectAnswer(''); setUnderstanding(''); setExtraction(''); setEquation(''); setCheck(''); }}
+                style={{ marginTop: 12, fontSize: 12, color: '#6b7280', background: 'none', border: '0.5px solid #d1d5db', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                もう一度解く
+              </button>
+            </div>
+          ) : question.answer_mode === 'staged' ? (
+            /* Staged answer form */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={labelStyle}>① 問題の理解（何を求めるか）</label>
+                <textarea value={understanding} onChange={e => setUnderstanding(e.target.value)} style={inputStyle} placeholder="例：xの値を求める" />
+              </div>
+              <div>
+                <label style={labelStyle}>② 情報の整理（わかっていること）</label>
+                <textarea value={extraction} onChange={e => setExtraction(e.target.value)} style={inputStyle} placeholder="例：a=2, b=3" />
+              </div>
+              <div>
+                <label style={labelStyle}>③ 方程式・式の立式</label>
+                <textarea value={equation} onChange={e => setEquation(e.target.value)} style={inputStyle} placeholder="例：2x + 3 = 7" />
+              </div>
+              <div>
+                <label style={labelStyle}>④ 答え <span style={{ color: '#ef4444' }}>*</span></label>
+                <textarea value={answer} onChange={e => setAnswer(e.target.value)} style={inputStyle} placeholder="例：x = 2" />
+              </div>
+              <div>
+                <label style={labelStyle}>⑤ 検算・確認</label>
+                <textarea value={check} onChange={e => setCheck(e.target.value)} style={inputStyle} placeholder="例：2×2+3=7 ✓" />
+              </div>
+              <button
+                onClick={handleSubmit}
+                disabled={submitting || !answer.trim()}
+                style={{ padding: '9px 18px', background: '#0f1c2e', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: submitting || !answer.trim() ? 'not-allowed' : 'pointer', opacity: submitting || !answer.trim() ? 0.6 : 1, fontFamily: 'inherit' }}>
+                {submitting ? '送信中...' : '回答を送信'}
+              </button>
+            </div>
+          ) : (
+            /* Direct answer form */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={labelStyle}>答えを入力</label>
+                <textarea value={directAnswer} onChange={e => setDirectAnswer(e.target.value)} style={inputStyle} placeholder="答えを入力してください" />
+              </div>
+              <button
+                onClick={handleSubmit}
+                disabled={submitting || !directAnswer.trim()}
+                style={{ padding: '9px 18px', background: '#0f1c2e', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: submitting || !directAnswer.trim() ? 'not-allowed' : 'pointer', opacity: submitting || !directAnswer.trim() ? 0.6 : 1, fontFamily: 'inherit' }}>
+                {submitting ? '送信中...' : '回答を送信'}
+              </button>
             </div>
           )}
-
-          <button type="submit" disabled={submitting || !fields.answer.trim()}
-            style={{ width: '100%', padding: '10px', background: '#0f1c2e', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: submitting || !fields.answer.trim() ? 0.5 : 1, fontFamily: 'inherit' }}>
-            {submitting ? '提出中…' : '提出する'}
-          </button>
-        </form>
+        </div>
       )}
     </div>
   );

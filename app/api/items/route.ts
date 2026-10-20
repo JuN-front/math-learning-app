@@ -9,10 +9,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const { content_id, type, label, url, order } = await request.json();
+  const { content_id, type, label, url, order, unlock_after_item_id, question_id } = await request.json();
 
   const item = await prisma.contentItem.create({
-    data: { content_id, type, label, url: url ?? null, order: order ?? 0 },
+    data: {
+      content_id,
+      type,
+      label,
+      url: url ?? null,
+      order: order ?? 0,
+      unlock_after_item_id: unlock_after_item_id ?? null,
+      question_id: question_id ?? null,
+    },
   });
 
   return NextResponse.json(item);
