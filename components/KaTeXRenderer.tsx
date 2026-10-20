@@ -13,7 +13,7 @@ export default function KaTeXRenderer({ content }: { content: string }) {
       try { return katex.renderToString(math, { displayMode: true, throwOnError: false }); }
       catch { return math; }
     });
-    html = html.replace(/\$(.+?)\$/g, (_, math) => {
+    html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => { {
       try { return katex.renderToString(math, { displayMode: false, throwOnError: false }); }
       catch { return math; }
     });
