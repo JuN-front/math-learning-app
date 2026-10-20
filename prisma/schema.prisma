@@ -13,11 +13,13 @@ model User {
   username    String
   password    String
   role        String   @default("user")
+  group       String?                        // ← 追加
   created_at  DateTime @default(now())
 
   progress    Progress[]
   assignments ItemSubmission[]
   event_logs  EventLog[]
+  responses   QuestionResponse[]             // ← 追加
 }
 
 model Unit {
@@ -44,6 +46,7 @@ model Content {
   progress    Progress[]
   submissions ItemSubmission[]
   event_logs  EventLog[]
+  questions   Question[] 
 }
 
 model ContentItem {
@@ -105,4 +108,50 @@ model EventLog {
   item    ContentItem? @relation(fields: [item_id], references: [id], onDelete: SetNull)
 
   @@index([user_id, content_id])
+}
+
+model Question {
+  id               String    @id @default(cuid())
+  content_id       String
+  order            Int       @default(0)
+  phase            String                     // 'practice' | 'pre' | 'post'
+  body             String
+  answer_mode      String    @default("staged")  // 'staged' | 'simple'
+  accepted_answers String[]
+  allow_attachment Boolean   @default(false)
+  show_feedback    Boolean   @default(false)
+  published        Boolean   @default(false)
+  level            String?                    // 'L0' | 'L1' | 'L2'。practice は null
+  set_key          String?                    // practice は null
+  groups           String[]  @default([])     // practice は空配列
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
+  content   Content            @relation(fields: [content_id], references: [id], onDelete: Cascade)
+  responses QuestionResponse[]
+
+  @@index([content_id])
+}
+
+model QuestionResponse {
+  id                  String    @id @default(cuid())
+  user_id             String
+  question_id         String
+  attempt             Int       @default(1)
+  group               String?
+  understanding       String?
+  extraction          String?
+  equation            String?
+  answer              String
+  check               String?
+  attachment_url      String?
+  is_correct          Boolean
+  is_correct_override Boolean?
+  started_at          DateTime
+  submitted_at        DateTime  @default(now())
+
+  user     User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, question_id])
 }

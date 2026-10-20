@@ -25,6 +25,8 @@ import {
   ChevronDown, ChevronUp, Save, AlertCircle, CheckCircle, Lock, GripVertical,
   Download, BarChart2
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
+const QuestionsTab = dynamic(() => import('@/components/QuestionsTab'), { ssr: false });
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface User { id: string; personal_id: string; username: string; role: string; created_at: string; }
@@ -163,7 +165,7 @@ function SortableContent({
 export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [tab, setTab] = useState<'units' | 'users' | 'logs'>('units');
+  const [tab, setTab] = useState<'units' | 'users' | 'logs' | 'questions'>('units');
 
   // Log export state
   const [logFrom, setLogFrom] = useState('');
@@ -359,9 +361,10 @@ export default function AdminPage() {
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #e5e7eb' }}>
           {([
-            { key: 'units', label: '単元・コンテンツ管理', icon: <BookOpen size={14} /> },
-            { key: 'users', label: 'ユーザー管理', icon: <Users size={14} /> },
-            { key: 'logs',  label: 'ログエクスポート',    icon: <BarChart2 size={14} /> },
+            { key: 'units',     label: '単元・コンテンツ管理', icon: <BookOpen size={14} /> },
+            { key: 'users',     label: 'ユーザー管理',         icon: <Users size={14} /> },
+            { key: 'questions', label: '問題管理',              icon: <BookOpen size={14} /> },
+            { key: 'logs',      label: 'ログエクスポート',      icon: <BarChart2 size={14} /> },
           ] as const).map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '10px 20px', fontSize: 13, fontWeight: 500, background: 'none', border: 'none', borderBottom: tab === t.key ? '2px solid #378ADD' : '2px solid transparent', color: tab === t.key ? '#378ADD' : '#6b7280', cursor: 'pointer', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
               {t.icon}{t.label}
@@ -493,6 +496,11 @@ export default function AdminPage() {
               {users.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af', fontSize: 13 }}>ユーザーがいません</div>}
             </div>
           </div>
+        )}
+
+        {/* ── QUESTIONS TAB ── */}
+        {tab === 'questions' && (
+          <QuestionsTab contents={units.flatMap(u => u.contents ?? [])} />
         )}
 
         {/* ── LOGS TAB ── */}

@@ -11,6 +11,7 @@ declare module 'next-auth' {
       email?: string | null;
       image?: string | null;
       role: string;
+      group: string | null;
     };
   }
   interface User {
@@ -22,6 +23,7 @@ declare module 'next-auth/jwt' {
   interface JWT {
     id: string;
     role: string;
+    group: string | null;
   }
 }
 
@@ -35,21 +37,13 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.personal_id || !credentials?.password) return null;
-
         const user = await prisma.user.findUnique({
           where: { personal_id: credentials.personal_id },
         });
         if (!user) return null;
-
         const isValid = await bcrypt.compare(credentials.password, user.password);
         if (!isValid) return null;
-
-        return {
-          id: user.id,
-          name: user.username,
-          email: user.personal_id,
-          role: user.role,
-        };
+        return { id: user.id, name: user.username, email: user.personal_id, role: user.role };
       },
     }),
   ],
@@ -59,12 +53,20 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role;
         token.id = user.id;
       }
+      if (token.id) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: token.id },
+          select: { group: true },
+        });
+        token.group = dbUser?.group ?? null;
+      }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.role = token.role;
         session.user.id = token.id;
+        session.user.group = token.group;
       }
       return session;
     },

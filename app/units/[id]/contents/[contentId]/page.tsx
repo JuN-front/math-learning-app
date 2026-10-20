@@ -3,13 +3,15 @@ import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import Header from '@/components/Header';
 import { ChevronLeft, Play, FileText, Upload, CheckCircle, Lock, AlertCircle } from 'lucide-react';
+const QuestionCard = dynamic(() => import('@/components/QuestionCard'), { ssr: false });
 
 interface ContentItem {
   id: string;
-  type: string;  // 'video' | 'pdf' | 'link'
-  label: string; // '学習用' | '課題用' | '解答用' | '参考資料'
+  type: string;
+  label: string;
   file_path?: string | null;
   url?: string | null;
   order: number;
@@ -45,18 +47,23 @@ export default function ContentPage({ params }: { params: Promise<{ id: string; 
   const [loading, setLoading] = useState(true);
   const [uploadLoading, setUploadLoading] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState('');
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [userGroup, setUserGroup] = useState<string | null>(null);
 
   useEffect(() => { params.then(({ id, contentId }) => { setUnitId(id); setContentId(contentId); }); }, [params]);
   useEffect(() => { if (status === 'unauthenticated') router.push('/login'); }, [status, router]);
 
   const fetchData = async (cid: string) => {
-    const [contentRes, progressRes] = await Promise.all([
+    const [contentRes, progressRes, questionsRes] = await Promise.all([
       fetch(`/api/contents/${cid}`).then(r => r.json()),
       fetch(`/api/contents/${cid}/progress`).then(r => r.json()),
+      fetch(`/api/questions/${cid}`).then(r => r.json()),
     ]);
     setContent(contentRes);
     setProgressStatus(progressRes.progress?.status ?? 'not_started');
     setSubmissions(progressRes.submissions ?? []);
+    setQuestions(questionsRes.questions ?? []);
+    setUserGroup(questionsRes.userGroup ?? null);
     setLoading(false);
   };
 
@@ -93,7 +100,6 @@ export default function ContentPage({ params }: { params: Promise<{ id: string; 
 
   const isCompleted = progressStatus === 'completed';
 
-  // itemsを種類別に整理
   const studyItems = content.items.filter(i => i.label === '学習用' || i.label === '参考資料');
   const assignmentItems = content.items.filter(i => i.label === '課題用');
   const answerItems = content.items.filter(i => i.label === '解答用');
@@ -189,7 +195,6 @@ export default function ContentPage({ params }: { params: Promise<{ id: string; 
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {/* 課題PDF */}
                     {item.file_path && (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#faf5ff', border: '0.5px solid #e9d5ff', borderRadius: 8 }}>
                         <span style={{ fontSize: 13, color: '#7c3aed', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -202,7 +207,6 @@ export default function ContentPage({ params }: { params: Promise<{ id: string; 
                       </div>
                     )}
 
-                    {/* 提出済みファイル */}
                     {submission && (
                       <div style={{ background: '#f0fdf4', border: '0.5px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div>
@@ -257,6 +261,23 @@ export default function ContentPage({ params }: { params: Promise<{ id: string; 
               </div>
             ))}
           </>
+        )}
+
+        {/* 解答フォーム */}
+        {questions.length > 0 && (
+          <div style={{ marginTop: 28 }}>
+            <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              解答フォーム <div style={{ flex: 1, height: '0.5px', background: '#e5e7eb' }} />
+            </div>
+            {!userGroup && questions.some((q: any) => q.phase !== 'practice') && (
+              <div style={{ fontSize: 13, color: '#9ca3af', padding: '12px 16px', background: '#f9fafb', borderRadius: 8, marginBottom: 12 }}>
+                テスト問題は準備中です。しばらくお待ちください。
+              </div>
+            )}
+            {questions.map((q: any) => (
+              <QuestionCard key={q.id} question={q} contentId={contentId} />
+            ))}
+          </div>
         )}
 
         <Link href={`/units/${unitId}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#378ADD', textDecoration: 'none', marginTop: 8 }}>
