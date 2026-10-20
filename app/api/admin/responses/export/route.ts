@@ -41,14 +41,16 @@ export async function GET(request: NextRequest) {
     'started_at','submitted_at','duration_sec',
   ];
   const rows = responses.map(r => {
-    const duration = Math.round((r.submitted_at.getTime() - r.started_at.getTime()) / 1000);
+    const duration = r.started_at
+      ? Math.round((r.submitted_at.getTime() - r.started_at.getTime()) / 1000)
+      : null;
     return [
       r.user.personal_id, r.group ?? '', r.question_id,
       r.question.phase, r.question.level ?? '', r.question.set_key ?? '',
       r.attempt, r.understanding ?? '', r.extraction ?? '',
       r.equation ?? '', r.answer, r.check ?? '',
       r.attachment_url ?? '', r.is_correct, r.is_correct_override ?? '',
-      r.started_at.toISOString(), r.submitted_at.toISOString(), duration,
+      r.started_at?.toISOString() ?? '', r.submitted_at.toISOString(), duration ?? '',
     ];
   });
 
