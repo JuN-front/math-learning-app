@@ -16,9 +16,10 @@ model User {
   group       String?
   created_at  DateTime @default(now())
 
-  progress    Progress[]
-  event_logs  EventLog[]
-  responses   QuestionResponse[]
+  progress             Progress[]
+  event_logs           EventLog[]
+  responses            QuestionResponse[]
+  sub_responses        SubQuestionResponse[]
 }
 
 model Unit {
@@ -77,26 +78,44 @@ model Progress {
 }
 
 model Question {
-  id               String    @id @default(cuid())
-  content_id       String
-  order            Int       @default(0)
-  phase            String
-  body             String
-  answer_mode      String    @default("staged")
-  accepted_answers String[]
-  allow_attachment Boolean   @default(false)
-  show_feedback    Boolean   @default(false)
-  published        Boolean   @default(false)
-  level            String?
-  set_key          String?
-  groups           String[]  @default([])
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  content_id        String
+  order             Int       @default(0)
+  phase             String
+  body              String
+  file_path         String?
+  answer_mode       String    @default("staged")
+  accepted_answers  String[]
+  has_sub_questions Boolean   @default(false)
+  allow_attachment  Boolean   @default(false)
+  show_feedback     Boolean   @default(false)
+  published         Boolean   @default(false)
+  level             String?
+  set_key           String?
+  groups            String[]  @default([])
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
 
-  content   Content            @relation(fields: [content_id], references: [id], onDelete: Cascade)
-  responses QuestionResponse[]
+  content       Content            @relation(fields: [content_id], references: [id], onDelete: Cascade)
+  responses     QuestionResponse[]
+  sub_questions SubQuestion[]
 
   @@index([content_id])
+}
+
+model SubQuestion {
+  id               String   @id @default(cuid())
+  question_id      String
+  order            Int      @default(0)
+  body             String
+  file_path        String?
+  accepted_answers String[]
+  created_at       DateTime @default(now())
+
+  question  Question              @relation(fields: [question_id], references: [id], onDelete: Cascade)
+  responses SubQuestionResponse[]
+
+  @@index([question_id])
 }
 
 model QuestionResponse {
@@ -120,6 +139,30 @@ model QuestionResponse {
   question Question @relation(fields: [question_id], references: [id], onDelete: Cascade)
 
   @@index([question_id])
+  @@index([user_id])
+}
+
+model SubQuestionResponse {
+  id                  String      @id @default(cuid())
+  user_id             String
+  sub_question_id     String
+  attempt             Int         @default(1)
+  group               String?
+  understanding       String?
+  extraction          String?
+  equation            String?
+  answer              String
+  check               String?
+  attachment_url      String?
+  is_correct          Boolean
+  is_correct_override Boolean?
+  started_at          DateTime?
+  submitted_at        DateTime    @default(now())
+
+  user         User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  sub_question SubQuestion @relation(fields: [sub_question_id], references: [id], onDelete: Cascade)
+
+  @@index([sub_question_id])
   @@index([user_id])
 }
 

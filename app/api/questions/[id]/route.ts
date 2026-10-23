@@ -19,7 +19,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       order: true,
       phase: true,
       body: true,
+      file_path: true,
       answer_mode: true,
+      has_sub_questions: true,
       allow_attachment: true,
       show_feedback: true,
       published: true,
@@ -27,12 +29,21 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       set_key: true,
       groups: true,
       // NEVER include accepted_answers
+      sub_questions: {
+        orderBy: { order: 'asc' },
+        select: {
+          id: true,
+          order: true,
+          body: true,
+          file_path: true,
+          // NEVER include accepted_answers
+        },
+      },
     },
   });
 
   if (!question) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  // Students can only see published questions
   if (!isAdmin && !question.published) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
