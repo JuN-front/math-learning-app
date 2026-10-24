@@ -57,6 +57,7 @@ const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4,
 };
 
+// Single answer form (staged or direct)
 function AnswerForm({
   mode, state, onChange, onSubmit, submitting,
 }: {
@@ -86,10 +87,6 @@ function AnswerForm({
           <label style={labelStyle}>④ 答え <span style={{ color: '#ef4444' }}>*</span></label>
           <textarea value={state.answer} onChange={e => onChange('answer', e.target.value)} style={inputStyle} placeholder="例：x = 2" />
         </div>
-        <div>
-          <label style={labelStyle}>⑤ 検算・確認</label>
-          <textarea value={state.check} onChange={e => onChange('check', e.target.value)} style={inputStyle} placeholder="例：2×2+3=7 ✓" />
-        </div>
         <button onClick={onSubmit} disabled={!canSubmit}
           style={{ padding: '9px 18px', background: '#0f1c2e', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: canSubmit ? 'pointer' : 'not-allowed', opacity: canSubmit ? 1 : 0.6, fontFamily: 'inherit' }}>
           {submitting ? '送信中...' : '回答を送信'}
@@ -111,6 +108,7 @@ function AnswerForm({
   );
 }
 
+// One sub-question block
 function SubQuestionBlock({
   sub, index, mode, questionId, show_feedback, onFirstAnswer,
 }: {
@@ -148,6 +146,7 @@ function SubQuestionBlock({
 
   return (
     <div style={{ border: '0.5px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 12 }}>
+      {/* Sub header */}
       <div style={{ background: '#f9fafb', padding: '10px 16px', borderBottom: '0.5px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: '#6b7280' }}>({index + 1})</span>
         {answered && result && (
@@ -156,13 +155,16 @@ function SubQuestionBlock({
           </span>
         )}
       </div>
+
       <div style={{ padding: '14px 16px' }}>
+        {/* Sub body */}
         <div style={{ marginBottom: 14, padding: '10px 14px', background: '#fafafa', borderRadius: 8, border: '0.5px solid #e5e7eb', fontSize: 13 }}>
           <KaTeXRenderer content={sub.body} />
         </div>
         {sub.file_path && (
           <img src={sub.file_path} alt="問題画像" style={{ maxWidth: '100%', borderRadius: 6, marginBottom: 12 }} />
         )}
+
         {result ? (
           <div style={{ padding: '12px 14px', borderRadius: 8, background: result.is_correct ? '#f0fdf4' : '#fef2f2', border: `0.5px solid ${result.is_correct ? '#bbf7d0' : '#fecaca'}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: result.is_correct ? '#15803d' : '#dc2626', fontSize: 13 }}>
@@ -188,11 +190,13 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(false);
 
+  // For main question (no sub-questions)
   const [state, setState] = useState<AnswerState>(emptyAnswer());
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ is_correct: boolean; message?: string } | null>(null);
   const [answered, setAnswered] = useState(false);
 
+  // Track how many sub-questions have been answered (for onAnswered callback)
   const [answeredSubCount, setAnsweredSubCount] = useState(0);
   const answeredSubCountRef = { current: answeredSubCount };
 
@@ -221,6 +225,7 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
   const handleSubFirstAnswer = () => {
     const newCount = answeredSubCountRef.current + 1;
     setAnsweredSubCount(newCount);
+    // Call onAnswered on first sub-question answered
     if (newCount === 1) onAnswered?.();
   };
 
@@ -239,6 +244,7 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
 
   return (
     <div style={{ background: '#fff', border: '0.5px solid #fde68a', borderRadius: 12, overflow: 'hidden', ...f }}>
+      {/* Header */}
       <div
         style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', background: '#fffbeb' }}
         onClick={() => setExpanded(v => !v)}
@@ -266,8 +272,10 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
         {expanded ? <ChevronUp size={16} color="#9ca3af" /> : <ChevronDown size={16} color="#9ca3af" />}
       </div>
 
+      {/* Body */}
       {expanded && (
         <div style={{ padding: '20px', borderTop: '0.5px solid #fde68a' }}>
+          {/* Main question body */}
           <div style={{ marginBottom: 16, padding: '14px 16px', background: '#fafafa', borderRadius: 8, border: '0.5px solid #e5e7eb' }}>
             <KaTeXRenderer content={question.body} />
           </div>
@@ -276,6 +284,7 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
           )}
 
           {hasSubQ ? (
+            /* Sub-questions */
             <div>
               {question.sub_questions.map((sub, i) => (
                 <SubQuestionBlock
@@ -290,6 +299,7 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
               ))}
             </div>
           ) : result ? (
+            /* Main result */
             <div style={{ padding: '14px 16px', borderRadius: 8, background: result.is_correct ? '#f0fdf4' : '#fef2f2', border: `0.5px solid ${result.is_correct ? '#bbf7d0' : '#fecaca'}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: result.is_correct ? '#15803d' : '#dc2626', fontSize: 14 }}>
                 {result.is_correct ? <CheckCircle size={16} /> : <XCircle size={16} />}
@@ -303,6 +313,7 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
               </button>
             </div>
           ) : (
+            /* Main answer form */
             <AnswerForm
               mode={question.answer_mode}
               state={state}

@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 
 const KaTeXRenderer = dynamic(() => import('@/components/KaTeXRenderer'), { ssr: false });
 
+// ─── Types ───────────────────────────────────────────────────────────────────
 interface Content { id: string; title: string; unit_id?: string; }
 
 interface Question {
@@ -26,6 +27,7 @@ interface QuestionsTabProps {
   contents: Content[];
 }
 
+// ─── Styles ──────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 500, color: '#374151', marginBottom: 4 };
 const btnPrimary: React.CSSProperties = { background: '#0f1c2e', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' };
@@ -34,12 +36,15 @@ const btnSecondary: React.CSSProperties = { background: '#f3f4f6', color: '#3741
 const GROUP_COLORS: Record<string, string> = { A: '#dbeafe', B: '#dcfce7', C: '#fef3c7' };
 const GROUP_TEXT: Record<string, string> = { A: '#1d4ed8', B: '#16a34a', C: '#92400e' };
 
+// Latin square: for set index i (0-based), group X gets level L[(offset[X]+i)%3]
+// A=0, B=1, C=2  offset: A→0, B→1, C→2
 const LEVELS = ['基礎', '標準', '発展'];
 function latinLevel(group: 'A' | 'B' | 'C', setIndex: number): string {
   const offset = { A: 0, B: 1, C: 2 }[group];
   return LEVELS[(offset + setIndex) % 3];
 }
 
+// ─── Modal ───────────────────────────────────────────────────────────────────
 function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }}>
@@ -54,6 +59,7 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
   );
 }
 
+// ─── SubQuestion editor ───────────────────────────────────────────────────────
 interface SubQDraft { body: string; acceptedAnswers: string; }
 
 function SubQuestionEditor({ subs, onChange }: { subs: SubQDraft[]; onChange: (subs: SubQDraft[]) => void }) {
@@ -92,6 +98,7 @@ function SubQuestionEditor({ subs, onChange }: { subs: SubQDraft[]; onChange: (s
   );
 }
 
+// ─── Practice Question Form ───────────────────────────────────────────────────
 function PracticeForm({ contentId, onSaved, onClose }: { contentId: string; onSaved: () => void; onClose: () => void }) {
   const [body, setBody] = useState('');
   const [hasSubQuestions, setHasSubQuestions] = useState(false);
@@ -153,6 +160,7 @@ function PracticeForm({ contentId, onSaved, onClose }: { contentId: string; onSa
         )}
       </div>
 
+      {/* 大問 / 小問切り替え */}
       <div style={{ display: 'flex', gap: 0, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', alignSelf: 'flex-start' }}>
         {[{ v: false, l: '大問（1問）' }, { v: true, l: '小問あり' }].map(({ v, l }) => (
           <button key={String(v)} onClick={() => setHasSubQuestions(v)} style={{ padding: '7px 18px', fontSize: 13, fontWeight: 500, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: hasSubQuestions === v ? '#0f1c2e' : '#f9fafb', color: hasSubQuestions === v ? '#fff' : '#6b7280' }}>
@@ -176,7 +184,7 @@ function PracticeForm({ contentId, onSaved, onClose }: { contentId: string; onSa
       <div>
         <label style={labelStyle}>解答モード</label>
         <select value={answerMode} onChange={e => setAnswerMode(e.target.value as 'staged' | 'simple')} style={inputStyle}>
-          <option value="staged">段階入力（理解度・抽出・立式・解答・確認）</option>
+          <option value="staged">段階入力（理解度・抽出・立式・解答）</option>
           <option value="simple">シンプル（解答のみ）</option>
         </select>
       </div>
@@ -199,19 +207,29 @@ function PracticeForm({ contentId, onSaved, onClose }: { contentId: string; onSa
   );
 }
 
+// ─── Test Set Form ────────────────────────────────────────────────────────────
 function TestSetForm({ contentId, setIndex, phase, onSaved, onClose }: { contentId: string; setIndex: number; phase: 'pre' | 'post'; onSaved: () => void; onClose: () => void }) {
   const [bodies, setBodies] = useState<Record<string, string>>({ A: '', B: '', C: '' });
   const [acceptedAnswers, setAcceptedAnswers] = useState<Record<string, string>>({ A: '', B: '', C: '' });
+  // 小問設定: グループごとに独立
+  const [hasSubQMap, setHasSubQMap] = useState<Record<string, boolean>>({ A: false, B: false, C: false });
+  const [subQMap, setSubQMap] = useState<Record<string, SubQDraft[]>>({ A: [{ body: '', acceptedAnswers: '' }], B: [{ body: '', acceptedAnswers: '' }], C: [{ body: '', acceptedAnswers: '' }] });
   const [answerMode, setAnswerMode] = useState<'staged' | 'simple'>('staged');
   const [allowAttachment, setAllowAttachment] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [previewGroup, setPreviewGroup] = useState<'A' | 'B' | 'C'>('A');
+  const [activeGroup, setActiveGroup] = useState<'A' | 'B' | 'C'>('A');
 
   async function handleSave() {
     for (const g of ['A', 'B', 'C'] as const) {
       if (!bodies[g].trim()) { setError(`グループ${g}の問題文を入力してください`); return; }
+      if (hasSubQMap[g]) {
+        if (subQMap[g].length < 2) { setError(`グループ${g}の小問は2問以上必要です`); return; }
+        for (let i = 0; i < subQMap[g].length; i++) {
+          if (!subQMap[g][i].body.trim()) { setError(`グループ${g} 小問(${i + 1})の問題文を入力してください`); return; }
+        }
+      }
     }
     setSaving(true);
     setError('');
@@ -227,7 +245,13 @@ function TestSetForm({ contentId, setIndex, phase, onSaved, onClose }: { content
           group: g,
           level: latinLevel(g, setIndex),
           body: bodies[g].trim(),
-          accepted_answers: acceptedAnswers[g].split('\n').map((s: string) => s.trim()).filter(Boolean),
+          has_sub_questions: hasSubQMap[g],
+          accepted_answers: hasSubQMap[g] ? [] : acceptedAnswers[g].split('\n').map((s: string) => s.trim()).filter(Boolean),
+          sub_questions: hasSubQMap[g] ? subQMap[g].map((s, i) => ({
+            order: i,
+            body: s.body.trim(),
+            accepted_answers: s.acceptedAnswers.split('\n').map((x: string) => x.trim()).filter(Boolean),
+          })) : [],
         })),
         answer_mode: answerMode,
         allow_attachment: allowAttachment,
@@ -240,44 +264,67 @@ function TestSetForm({ contentId, setIndex, phase, onSaved, onClose }: { content
     onClose();
   }
 
+  const g = activeGroup;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Latin square preview */}
       <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 10 }}>ラテン方格（セット{setIndex + 1}）</div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {(['A', 'B', 'C'] as const).map(g => (
-            <div key={g} style={{ flex: 1, background: GROUP_COLORS[g], borderRadius: 8, padding: '8px 12px', textAlign: 'center' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: GROUP_TEXT[g] }}>グループ{g}</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: GROUP_TEXT[g], marginTop: 2 }}>{latinLevel(g, setIndex)}</div>
+          {(['A', 'B', 'C'] as const).map(grp => (
+            <div key={grp} style={{ flex: 1, background: GROUP_COLORS[grp], borderRadius: 8, padding: '8px 12px', textAlign: 'center' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: GROUP_TEXT[grp] }}>グループ{grp}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: GROUP_TEXT[grp], marginTop: 2 }}>{latinLevel(grp, setIndex)}</div>
             </div>
           ))}
         </div>
       </div>
 
+      {/* Tabs per group */}
       <div>
         <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e7eb', marginBottom: 16 }}>
-          {(['A', 'B', 'C'] as const).map(g => (
-            <button key={g} onClick={() => setPreviewGroup(g)} style={{ padding: '8px 20px', fontSize: 13, fontWeight: 500, background: 'none', border: 'none', borderBottom: previewGroup === g ? '2px solid #0f1c2e' : '2px solid transparent', color: previewGroup === g ? '#0f1c2e' : '#6b7280', cursor: 'pointer', fontFamily: 'inherit', marginBottom: -1 }}>
-              グループ{g}（{latinLevel(g, setIndex)}）
+          {(['A', 'B', 'C'] as const).map(grp => (
+            <button key={grp} onClick={() => setActiveGroup(grp)} style={{ padding: '8px 20px', fontSize: 13, fontWeight: 500, background: 'none', border: 'none', borderBottom: activeGroup === grp ? '2px solid #0f1c2e' : '2px solid transparent', color: activeGroup === grp ? '#0f1c2e' : '#6b7280', cursor: 'pointer', fontFamily: 'inherit', marginBottom: -1 }}>
+              グループ{grp}
             </button>
           ))}
         </div>
         <div>
+          {/* 問題文 */}
           <label style={labelStyle}>問題文（KaTeX使用可）</label>
-          <textarea value={bodies[previewGroup]} onChange={e => setBodies(p => ({ ...p, [previewGroup]: e.target.value }))} rows={5} style={{ ...inputStyle, resize: 'vertical' }} placeholder={`グループ${previewGroup}（${latinLevel(previewGroup, setIndex)}）向けの問題文`} />
-          {bodies[previewGroup] && (
+          <textarea value={bodies[g]} onChange={e => setBodies(p => ({ ...p, [g]: e.target.value }))} rows={5} style={{ ...inputStyle, resize: 'vertical' }} placeholder={`グループ${g}向けの問題文`} />
+          {bodies[g] && (
             <div style={{ marginTop: 8, padding: '8px 12px', background: '#f9fafb', borderRadius: 6, fontSize: 13 }}>
               <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 4 }}>プレビュー</div>
-              <KaTeXRenderer content={bodies[previewGroup]} />
+              <KaTeXRenderer content={bodies[g]} />
             </div>
           )}
-          <div style={{ marginTop: 12 }}>
-            <label style={labelStyle}>正解（1行1パターン）</label>
-            <textarea value={acceptedAnswers[previewGroup]} onChange={e => setAcceptedAnswers(p => ({ ...p, [previewGroup]: e.target.value }))} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
+
+          {/* 大問 / 小問切り替え */}
+          <div style={{ display: 'flex', gap: 0, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', alignSelf: 'flex-start', marginTop: 14 }}>
+            {[{ v: false, l: '大問（1問）' }, { v: true, l: '小問あり' }].map(({ v, l }) => (
+              <button key={String(v)} onClick={() => setHasSubQMap(p => ({ ...p, [g]: v }))} style={{ padding: '7px 18px', fontSize: 13, fontWeight: 500, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: hasSubQMap[g] === v ? '#0f1c2e' : '#f9fafb', color: hasSubQMap[g] === v ? '#fff' : '#6b7280' }}>
+                {l}
+              </button>
+            ))}
           </div>
+
+          {hasSubQMap[g] ? (
+            <div style={{ marginTop: 12 }}>
+              <label style={{ ...labelStyle, marginBottom: 8 }}>小問の設定</label>
+              <SubQuestionEditor subs={subQMap[g]} onChange={subs => setSubQMap(p => ({ ...p, [g]: subs }))} />
+            </div>
+          ) : (
+            <div style={{ marginTop: 12 }}>
+              <label style={labelStyle}>正解（1行1パターン）</label>
+              <textarea value={acceptedAnswers[g]} onChange={e => setAcceptedAnswers(p => ({ ...p, [g]: e.target.value }))} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Common settings */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 200px' }}>
           <label style={labelStyle}>解答モード</label>
@@ -307,6 +354,7 @@ function TestSetForm({ contentId, setIndex, phase, onSaved, onClose }: { content
   );
 }
 
+// ─── Main QuestionsTab ────────────────────────────────────────────────────────
 export default function QuestionsTab({ contents }: QuestionsTabProps) {
   const [selectedContentId, setSelectedContentId] = useState(contents[0]?.id ?? '');
   const [subTab, setSubTab] = useState<'list' | 'responses'>('list');
@@ -314,14 +362,17 @@ export default function QuestionsTab({ contents }: QuestionsTabProps) {
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
+  // Modals
   const [showPracticeModal, setShowPracticeModal] = useState(false);
   const [showTestModal, setShowTestModal] = useState<{ phase: 'pre' | 'post'; setIndex: number } | null>(null);
 
+  // Responses
   const [responses, setResponses] = useState<any[]>([]);
   const [respLoading, setRespLoading] = useState(false);
   const [respPhase, setRespPhase] = useState('');
   const [previewGroup, setPreviewGroup] = useState<'A' | 'B' | 'C' | ''>('');
 
+  // Delete confirm
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const loadQuestions = useCallback(async () => {
@@ -383,6 +434,7 @@ export default function QuestionsTab({ contents }: QuestionsTabProps) {
   const pre = questions.filter(q => q.phase === 'pre').sort((a, b) => a.order - b.order);
   const post = questions.filter(q => q.phase === 'post').sort((a, b) => a.order - b.order);
 
+  // Group test questions by set_key
   const groupBySet = (qs: Question[]) => {
     const map = new Map<string, Question[]>();
     for (const q of qs) {
@@ -399,6 +451,7 @@ export default function QuestionsTab({ contents }: QuestionsTabProps) {
 
   return (
     <div>
+      {/* Content selector */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <div>
           <label style={{ ...labelStyle, marginBottom: 0, marginRight: 8, display: 'inline' }}>コンテンツ：</label>
@@ -415,8 +468,11 @@ export default function QuestionsTab({ contents }: QuestionsTabProps) {
         </div>
       </div>
 
+      {/* ── LIST SUB-TAB ── */}
       {subTab === 'list' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+          {/* PRACTICE section */}
           <section>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -436,6 +492,7 @@ export default function QuestionsTab({ contents }: QuestionsTabProps) {
             )}
           </section>
 
+          {/* PRE section */}
           <TestSection
             label="事前テスト"
             phase="pre"
@@ -449,6 +506,7 @@ export default function QuestionsTab({ contents }: QuestionsTabProps) {
             onLoadQuestions={loadQuestions}
           />
 
+          {/* POST section */}
           <TestSection
             label="事後テスト"
             phase="post"
@@ -462,6 +520,7 @@ export default function QuestionsTab({ contents }: QuestionsTabProps) {
             onLoadQuestions={loadQuestions}
           />
 
+          {/* Admin preview */}
           <section style={{ borderTop: '1px solid #f3f4f6', paddingTop: 20 }}>
             <h3 style={{ fontSize: 14, fontWeight: 700, color: '#6b7280', marginBottom: 12 }}>管理者プレビュー</h3>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -478,7 +537,7 @@ export default function QuestionsTab({ contents }: QuestionsTabProps) {
                   <div key={q.id} style={{ marginBottom: 10, padding: '8px 12px', background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb' }}>
                     <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>
                       {q.phase === 'practice' ? '練習' : q.phase === 'pre' ? '事前' : '事後'}
-                      {q.level && ` / ${q.level}`}
+                      {q.groups[0] && ` / グループ${q.groups[0]}`}
                     </div>
                     <KaTeXRenderer content={q.body} />
                   </div>
@@ -489,6 +548,7 @@ export default function QuestionsTab({ contents }: QuestionsTabProps) {
         </div>
       )}
 
+      {/* ── RESPONSES SUB-TAB ── */}
       {subTab === 'responses' && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -540,6 +600,7 @@ export default function QuestionsTab({ contents }: QuestionsTabProps) {
         </div>
       )}
 
+      {/* Modals */}
       {showPracticeModal && (
         <Modal title="練習問題を追加" onClose={() => setShowPracticeModal(false)}>
           <PracticeForm contentId={selectedContentId} onSaved={loadQuestions} onClose={() => setShowPracticeModal(false)} />
@@ -563,6 +624,7 @@ export default function QuestionsTab({ contents }: QuestionsTabProps) {
   );
 }
 
+// ─── Sub-components ───────────────────────────────────────────────────────────
 function Spinner() {
   return <div style={{ textAlign: 'center', padding: 32, color: '#9ca3af', fontSize: 13 }}>読み込み中...</div>;
 }
@@ -648,11 +710,10 @@ function TestSection({ label, phase, groups, loading, publishing, allPublished, 
               <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 10 }}>セット {si + 1}</div>
               <div style={{ display: 'flex', gap: 8 }}>
                 {qs.sort((a, b) => (a.groups[0] ?? '').localeCompare(b.groups[0] ?? '')).map(q => (
-                  <div key={q.id} style={{ flex: 1, background: GROUP_COLORS[q.groups[0]] ?? '#fff', border: `1px solid #e5e7eb`, borderRadius: 8, padding: '10px 12px' }}>
+                  <div key={q.id} style={{ flex: 1, background: GROUP_COLORS[q.groups[0]] ?? '#fff', border: `1px solid ${q.groups[0] ? '#e5e7eb' : '#e5e7eb'}`, borderRadius: 8, padding: '10px 12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        {q.groups[0] && <span style={{ fontSize: 11, fontWeight: 700, color: GROUP_TEXT[q.groups[0]] }}>G{q.groups[0]}</span>}
-                        {q.level && <span style={{ fontSize: 11, color: '#6b7280' }}>{q.level}</span>}
+                        {q.groups[0] && <span style={{ fontSize: 11, fontWeight: 700, color: GROUP_TEXT[q.groups[0]] }}>グループ{q.groups[0]}</span>}
                       </div>
                       <button onClick={() => onDelete(q.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}>🗑</button>
                     </div>
