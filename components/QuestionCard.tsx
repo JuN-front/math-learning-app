@@ -87,6 +87,10 @@ function AnswerForm({
           <label style={labelStyle}>④ 答え <span style={{ color: '#ef4444' }}>*</span></label>
           <textarea value={state.answer} onChange={e => onChange('answer', e.target.value)} style={inputStyle} placeholder="例：x = 2" />
         </div>
+        <div>
+          <label style={labelStyle}>⑤ 検算・確認</label>
+          <textarea value={state.check} onChange={e => onChange('check', e.target.value)} style={inputStyle} placeholder="例：2×2+3=7 ✓" />
+        </div>
         <button onClick={onSubmit} disabled={!canSubmit}
           style={{ padding: '9px 18px', background: '#0f1c2e', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: canSubmit ? 'pointer' : 'not-allowed', opacity: canSubmit ? 1 : 0.6, fontFamily: 'inherit' }}>
           {submitting ? '送信中...' : '回答を送信'}

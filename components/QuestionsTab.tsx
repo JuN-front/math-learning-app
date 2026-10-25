@@ -184,7 +184,7 @@ function PracticeForm({ contentId, onSaved, onClose }: { contentId: string; onSa
       <div>
         <label style={labelStyle}>解答モード</label>
         <select value={answerMode} onChange={e => setAnswerMode(e.target.value as 'staged' | 'simple')} style={inputStyle}>
-          <option value="staged">段階入力（理解度・抽出・立式・解答）</option>
+          <option value="staged">段階入力（理解度・抽出・立式・解答・確認）</option>
           <option value="simple">シンプル（解答のみ）</option>
         </select>
       </div>
