@@ -6,19 +6,18 @@ import { prisma } from '@/lib/db';
 const normalize = (s: string) =>
   s.trim().replace(/\s+/g, '').replace(/[　]/g, '').toLowerCase();
 
-interface ExplanationPayload {
-  exp_understanding: string | null;
-  exp_extraction: string | null;
-  exp_equation: string | null;
-  exp_answer: string | null;
-  exp_check: string | null;
-}
-
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// POST /api/questions/[id]/answer
+// Body for direct/staged question: { understanding?, extraction?, equation?, answer, check? }
+// Body for sub-question:           { sub_question_id, understanding?, extraction?, equation?, answer, check? }
+// SECURITY: accepted_answers are fetched server-side only, never sent to client.
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+): Promise<Response> {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id: questionId } = await params;
+  const { id: questionId } = await context.params;
   const userId = session.user.id;
 
   const question = await prisma.question.findUnique({
@@ -44,20 +43,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  let body: Record<string, string>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let body: Record<string, any>;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const answer = (body.answer ?? '').trim();
+  const answer = String(body.answer ?? '').trim();
   if (!answer) return NextResponse.json({ error: 'Answer required' }, { status: 400 });
 
   // --- Sub-question answer ---
   if (body.sub_question_id) {
     const subQ = await prisma.subQuestion.findUnique({
-      where: { id: body.sub_question_id },
+      where: { id: String(body.sub_question_id) },
       select: {
         id: true,
         accepted_answers: true,
@@ -71,8 +71,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     });
     if (!subQ) return NextResponse.json({ error: 'SubQuestion not found' }, { status: 404 });
 
-    const normalizedAnswer = normalize(answer);
-    const is_correct = subQ.accepted_answers.some(a => normalize(a) === normalizedAnswer);
+    const is_correct = subQ.accepted_answers.some(a => normalize(a) === normalize(answer));
 
     const prevWrong = await prisma.subQuestionResponse.count({
       where: { user_id: userId, sub_question_id: subQ.id, is_correct: false },
@@ -97,33 +96,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       },
     });
 
-    const responseBody: {
-      is_correct: boolean;
-      message?: string;
-      explanation?: ExplanationPayload;
-      explanation_unlocked?: boolean;
-    } = { is_correct };
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const resp: Record<string, any> = { is_correct };
     if (is_correct && subQ.has_explanation) {
-      responseBody.explanation = {
+      resp.explanation = {
         exp_understanding: subQ.exp_understanding,
         exp_extraction: subQ.exp_extraction,
         exp_equation: subQ.exp_equation,
         exp_answer: subQ.exp_answer,
         exp_check: subQ.exp_check,
       };
-    } else if (!is_correct) {
-      if (prevWrong + 1 >= 3 && subQ.has_explanation) {
-        responseBody.explanation_unlocked = true;
-      }
+    } else if (!is_correct && prevWrong + 1 >= 3 && subQ.has_explanation) {
+      resp.explanation_unlocked = true;
     }
-
-    return NextResponse.json(responseBody);
+    return NextResponse.json(resp);
   }
 
   // --- Main question answer ---
-  const normalizedAnswer = normalize(answer);
-  const is_correct = question.accepted_answers.some(a => normalize(a) === normalizedAnswer);
+  const is_correct = question.accepted_answers.some(a => normalize(a) === normalize(answer));
 
   const prevWrong = await prisma.questionResponse.count({
     where: { user_id: userId, question_id: questionId, is_correct: false },
@@ -148,26 +138,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     },
   });
 
-  const responseBody: {
-    is_correct: boolean;
-    message?: string;
-    explanation?: ExplanationPayload;
-    explanation_unlocked?: boolean;
-  } = { is_correct };
-
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp: Record<string, any> = { is_correct };
   if (is_correct && question.has_explanation) {
-    responseBody.explanation = {
+    resp.explanation = {
       exp_understanding: question.exp_understanding,
       exp_extraction: question.exp_extraction,
       exp_equation: question.exp_equation,
       exp_answer: question.exp_answer,
       exp_check: question.exp_check,
     };
-  } else if (!is_correct) {
-    if (prevWrong + 1 >= 3 && question.has_explanation) {
-      responseBody.explanation_unlocked = true;
-    }
+  } else if (!is_correct && prevWrong + 1 >= 3 && question.has_explanation) {
+    resp.explanation_unlocked = true;
   }
-
-  return NextResponse.json(responseBody);
+  return NextResponse.json(resp);
 }

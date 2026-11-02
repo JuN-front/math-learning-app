@@ -4,17 +4,22 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
 // GET /api/questions/[id]/explanation?sub_question_id=xxx
-// 3回以上不正解の場合のみ解説を返す。accepted_answersは絶対に返さない。
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// Returns explanation data ONLY if the user has 3+ wrong answers for this question.
+// SECURITY: Only returns explanation fields, never accepted_answers.
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+): Promise<Response> {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id: questionId } = await params;
+  const { id: questionId } = await context.params;
   const userId = session.user.id;
   const { searchParams } = new URL(request.url);
   const subQuestionId = searchParams.get('sub_question_id');
 
   if (subQuestionId) {
+    // Check 3+ wrong answers for sub question
     const wrongCount = await prisma.subQuestionResponse.count({
       where: { user_id: userId, sub_question_id: subQuestionId, is_correct: false },
     });

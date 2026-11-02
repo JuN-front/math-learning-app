@@ -3,13 +3,16 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
-// PATCH /api/admin/questions/[id]
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// PATCH /api/admin/questions/[id] — update published, etc.
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+): Promise<Response> {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== 'admin')
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const { id } = await params;
+  const { id } = await context.params;
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -17,6 +20,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
+  // Only allow safe fields to be patched
   const data: Record<string, unknown> = {};
   if (typeof body.published === 'boolean') data.published = body.published;
   if (typeof body.body === 'string') data.body = body.body;
@@ -29,12 +33,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 // DELETE /api/admin/questions/[id]
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(
+  _request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+): Promise<Response> {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== 'admin')
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const { id } = await params;
+  const { id } = await context.params;
   await prisma.question.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

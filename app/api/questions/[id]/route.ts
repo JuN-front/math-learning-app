@@ -4,11 +4,14 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
 // GET /api/questions/[id] — returns question WITHOUT accepted_answers
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+): Promise<Response> {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id } = await params;
+  const { id } = await context.params;
   const isAdmin = session.user.role === 'admin';
 
   const question = await prisma.question.findUnique({
@@ -28,6 +31,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       level: true,
       set_key: true,
       groups: true,
+      has_explanation: true,
       // NEVER include accepted_answers
       sub_questions: {
         orderBy: { order: 'asc' },
@@ -36,6 +40,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           order: true,
           body: true,
           file_path: true,
+          has_explanation: true,
           // NEVER include accepted_answers
         },
       },
@@ -44,6 +49,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   if (!question) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
+  // Students can only see published questions
   if (!isAdmin && !question.published) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }

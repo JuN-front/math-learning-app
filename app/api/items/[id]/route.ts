@@ -3,13 +3,16 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
-export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+): Promise<Response> {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const { id } = await params;
+  const { id } = await context.params;
   const { type, label, url, order, unlock_after_item_id, question_id } = await request.json();
 
   const item = await prisma.contentItem.update({
@@ -27,13 +30,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json(item);
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+): Promise<Response> {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const { id } = await params;
+  const { id } = await context.params;
   await prisma.contentItem.delete({ where: { id } });
 
   return NextResponse.json({ success: true });

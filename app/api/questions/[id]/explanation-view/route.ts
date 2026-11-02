@@ -5,12 +5,15 @@ import { prisma } from '@/lib/db';
 
 // POST /api/questions/[id]/explanation-view
 // Body: { sub_question_id? }
-// 解説閲覧をEventLogに記録し、最新レスポンスにexplanation_viewed_atをセット
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// Records that the student viewed the explanation (logged in EventLog + sets explanation_viewed_at on latest response)
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+): Promise<Response> {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id: questionId } = await params;
+  const { id: questionId } = await context.params;
   const userId = session.user.id;
 
   let body: Record<string, string> = {};
@@ -19,6 +22,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const subQuestionId = body.sub_question_id ?? null;
   const now = new Date();
 
+  // Count total attempts for logging
   let totalAttempts: number;
   let wrongAttempts: number;
 
@@ -30,16 +34,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       where: { user_id: userId, sub_question_id: subQuestionId, is_correct: false },
     });
 
+    // Mark the latest response for this sub-question
     const latest = await prisma.subQuestionResponse.findFirst({
       where: { user_id: userId, sub_question_id: subQuestionId },
       orderBy: { submitted_at: 'desc' },
-      select: { id: true, attempt: true, explanation_viewed_at: true },
+      select: { id: true, attempt: true },
     });
-    if (latest && !latest.explanation_viewed_at) {
-      await prisma.subQuestionResponse.update({
+    if (latest) {
+      const existing = await prisma.subQuestionResponse.findUnique({
         where: { id: latest.id },
-        data: { explanation_viewed_at: now, explanation_viewed_attempt: latest.attempt },
+        select: { explanation_viewed_at: true },
       });
+      if (!existing?.explanation_viewed_at) {
+        await prisma.subQuestionResponse.update({
+          where: { id: latest.id },
+          data: { explanation_viewed_at: now, explanation_viewed_attempt: latest.attempt },
+        });
+      }
     }
   } else {
     totalAttempts = await prisma.questionResponse.count({
@@ -52,16 +63,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const latest = await prisma.questionResponse.findFirst({
       where: { user_id: userId, question_id: questionId },
       orderBy: { submitted_at: 'desc' },
-      select: { id: true, attempt: true, explanation_viewed_at: true },
+      select: { id: true, attempt: true },
     });
-    if (latest && !latest.explanation_viewed_at) {
-      await prisma.questionResponse.update({
+    if (latest) {
+      const existing = await prisma.questionResponse.findUnique({
         where: { id: latest.id },
-        data: { explanation_viewed_at: now, explanation_viewed_attempt: latest.attempt },
+        select: { explanation_viewed_at: true },
       });
+      if (!existing?.explanation_viewed_at) {
+        await prisma.questionResponse.update({
+          where: { id: latest.id },
+          data: { explanation_viewed_at: now, explanation_viewed_attempt: latest.attempt },
+        });
+      }
     }
   }
 
+  // Log to EventLog
   const question = await prisma.question.findUnique({
     where: { id: questionId },
     select: { content_id: true },

@@ -4,13 +4,16 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import bcrypt from 'bcryptjs';
 
-export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+): Promise<Response> {
   const session = await getServerSession(authOptions);
   if (!session?.user || session.user.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const { id } = await params;
+  const { id } = await context.params;
   const { username, password, role } = await request.json();
 
   const data: { username?: string; password?: string; role?: string } = {};
@@ -27,13 +30,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json(user);
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+): Promise<Response> {
   const session = await getServerSession(authOptions);
   if (!session?.user || session.user.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const { id } = await params;
+  const { id } = await context.params;
 
   if (id === session.user.id) {
     return NextResponse.json({ error: '自分自身は削除できません' }, { status: 400 });
