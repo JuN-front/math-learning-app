@@ -93,6 +93,12 @@ model Question {
   level             String?
   set_key           String?
   groups            String[]  @default([])
+  has_explanation   Boolean   @default(false)
+  exp_understanding String?
+  exp_extraction    String?
+  exp_equation      String?
+  exp_answer        String?
+  exp_check         String?
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
 
@@ -104,13 +110,19 @@ model Question {
 }
 
 model SubQuestion {
-  id               String   @id @default(cuid())
-  question_id      String
-  order            Int      @default(0)
-  body             String
-  file_path        String?
-  accepted_answers String[]
-  created_at       DateTime @default(now())
+  id                String   @id @default(cuid())
+  question_id       String
+  order             Int      @default(0)
+  body              String
+  file_path         String?
+  accepted_answers  String[]
+  has_explanation   Boolean  @default(false)
+  exp_understanding String?
+  exp_extraction    String?
+  exp_equation      String?
+  exp_answer        String?
+  exp_check         String?
+  created_at        DateTime @default(now())
 
   question  Question              @relation(fields: [question_id], references: [id], onDelete: Cascade)
   responses SubQuestionResponse[]
@@ -119,21 +131,23 @@ model SubQuestion {
 }
 
 model QuestionResponse {
-  id                  String    @id @default(cuid())
-  user_id             String
-  question_id         String
-  attempt             Int       @default(1)
-  group               String?
-  understanding       String?
-  extraction          String?
-  equation            String?
-  answer              String
-  check               String?
-  attachment_url      String?
-  is_correct          Boolean
-  is_correct_override Boolean?
-  started_at          DateTime?
-  submitted_at        DateTime  @default(now())
+  id                          String    @id @default(cuid())
+  user_id                     String
+  question_id                 String
+  attempt                     Int       @default(1)
+  group                       String?
+  understanding               String?
+  extraction                  String?
+  equation                    String?
+  answer                      String
+  check                       String?
+  attachment_url              String?
+  is_correct                  Boolean
+  is_correct_override         Boolean?
+  started_at                  DateTime?
+  submitted_at                DateTime  @default(now())
+  explanation_viewed_at       DateTime?
+  explanation_viewed_attempt  Int?
 
   user     User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
   question Question @relation(fields: [question_id], references: [id], onDelete: Cascade)
@@ -143,21 +157,23 @@ model QuestionResponse {
 }
 
 model SubQuestionResponse {
-  id                  String      @id @default(cuid())
-  user_id             String
-  sub_question_id     String
-  attempt             Int         @default(1)
-  group               String?
-  understanding       String?
-  extraction          String?
-  equation            String?
-  answer              String
-  check               String?
-  attachment_url      String?
-  is_correct          Boolean
-  is_correct_override Boolean?
-  started_at          DateTime?
-  submitted_at        DateTime    @default(now())
+  id                          String    @id @default(cuid())
+  user_id                     String
+  sub_question_id             String
+  attempt                     Int       @default(1)
+  group                       String?
+  understanding               String?
+  extraction                  String?
+  equation                    String?
+  answer                      String
+  check                       String?
+  attachment_url              String?
+  is_correct                  Boolean
+  is_correct_override         Boolean?
+  started_at                  DateTime?
+  submitted_at                DateTime  @default(now())
+  explanation_viewed_at       DateTime?
+  explanation_viewed_attempt  Int?
 
   user         User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
   sub_question SubQuestion @relation(fields: [sub_question_id], references: [id], onDelete: Cascade)

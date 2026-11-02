@@ -60,12 +60,22 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
 }
 
 // ─── SubQuestion editor ───────────────────────────────────────────────────────
-interface SubQDraft { body: string; acceptedAnswers: string; }
+interface SubQDraft {
+  body: string;
+  acceptedAnswers: string;
+  hasExplanation: boolean;
+  expUnderstanding: string;
+  expExtraction: string;
+  expEquation: string;
+  expAnswer: string;
+  expCheck: string;
+}
+const emptySubQ = (): SubQDraft => ({ body: '', acceptedAnswers: '', hasExplanation: false, expUnderstanding: '', expExtraction: '', expEquation: '', expAnswer: '', expCheck: '' });
 
 function SubQuestionEditor({ subs, onChange }: { subs: SubQDraft[]; onChange: (subs: SubQDraft[]) => void }) {
-  const add = () => onChange([...subs, { body: '', acceptedAnswers: '' }]);
+  const add = () => onChange([...subs, emptySubQ()]);
   const remove = (i: number) => onChange(subs.filter((_, idx) => idx !== i));
-  const update = (i: number, field: keyof SubQDraft, val: string) =>
+  const update = (i: number, field: keyof SubQDraft, val: string | boolean) =>
     onChange(subs.map((s, idx) => idx === i ? { ...s, [field]: val } : s));
 
   return (
@@ -85,10 +95,32 @@ function SubQuestionEditor({ subs, onChange }: { subs: SubQDraft[]; onChange: (s
               </div>
             )}
           </div>
-          <div>
+          <div style={{ marginBottom: 8 }}>
             <label style={labelStyle}>正解（1行1パターン）</label>
             <textarea value={s.acceptedAnswers} onChange={e => update(i, 'acceptedAnswers', e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' }} placeholder={'x=1\n1'} />
           </div>
+          {/* 解説 */}
+          <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: '#374151', fontWeight: 500 }}>
+            <input type="checkbox" checked={s.hasExplanation} onChange={e => update(i, 'hasExplanation', e.target.checked)} />
+            解説を設定する
+          </label>
+          {s.hasExplanation && (
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, padding: '12px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 2 }}>解説（記入例）</div>
+              {[
+                { field: 'expUnderstanding' as const, label: '① 問題の理解（任意）', placeholder: '例：xの値を求める' },
+                { field: 'expExtraction' as const, label: '② 情報の整理（任意）', placeholder: '例：a=2, b=3' },
+                { field: 'expEquation' as const, label: '③ 立式（任意）', placeholder: '例：2x + 3 = 7' },
+                { field: 'expAnswer' as const, label: '④ 答え（必須）', placeholder: '例：x = 2' },
+                { field: 'expCheck' as const, label: '⑤ 検算（任意）', placeholder: '例：2×2+3=7 ✓' },
+              ].map(({ field, label, placeholder }) => (
+                <div key={field}>
+                  <label style={{ ...labelStyle, fontSize: 11 }}>{label}</label>
+                  <textarea value={s[field] as string} onChange={e => update(i, field, e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical', fontSize: 12 }} placeholder={placeholder} />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ))}
       <button onClick={add} style={{ ...btnSecondary, fontSize: 12, padding: '6px 12px', alignSelf: 'flex-start' }}>
@@ -102,11 +134,18 @@ function SubQuestionEditor({ subs, onChange }: { subs: SubQDraft[]; onChange: (s
 function PracticeForm({ contentId, onSaved, onClose }: { contentId: string; onSaved: () => void; onClose: () => void }) {
   const [body, setBody] = useState('');
   const [hasSubQuestions, setHasSubQuestions] = useState(false);
-  const [subQuestions, setSubQuestions] = useState<SubQDraft[]>([{ body: '', acceptedAnswers: '' }]);
+  const [subQuestions, setSubQuestions] = useState<SubQDraft[]>([emptySubQ()]);
   const [answerMode, setAnswerMode] = useState<'staged' | 'simple'>('staged');
   const [acceptedAnswers, setAcceptedAnswers] = useState('');
   const [allowAttachment, setAllowAttachment] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  // 解説（大問の場合）
+  const [hasExplanation, setHasExplanation] = useState(false);
+  const [expUnderstanding, setExpUnderstanding] = useState('');
+  const [expExtraction, setExpExtraction] = useState('');
+  const [expEquation, setExpEquation] = useState('');
+  const [expAnswer, setExpAnswer] = useState('');
+  const [expCheck, setExpCheck] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -136,9 +175,21 @@ function PracticeForm({ contentId, onSaved, onClose }: { contentId: string; onSa
           order: i,
           body: s.body.trim(),
           accepted_answers: s.acceptedAnswers.split('\n').map(x => x.trim()).filter(Boolean),
+          has_explanation: s.hasExplanation,
+          exp_understanding: s.expUnderstanding || null,
+          exp_extraction: s.expExtraction || null,
+          exp_equation: s.expEquation || null,
+          exp_answer: s.expAnswer || null,
+          exp_check: s.expCheck || null,
         })) : [],
         allow_attachment: allowAttachment,
         show_feedback: showFeedback,
+        has_explanation: !hasSubQuestions && hasExplanation,
+        exp_understanding: expUnderstanding || null,
+        exp_extraction: expExtraction || null,
+        exp_equation: expEquation || null,
+        exp_answer: expAnswer || null,
+        exp_check: expCheck || null,
       }),
     });
     setSaving(false);
@@ -146,6 +197,14 @@ function PracticeForm({ contentId, onSaved, onClose }: { contentId: string; onSa
     onSaved();
     onClose();
   }
+
+  const expFields = [
+    { state: expUnderstanding, set: setExpUnderstanding, label: '① 問題の理解（任意）', placeholder: '例：xの値を求める' },
+    { state: expExtraction, set: setExpExtraction, label: '② 情報の整理（任意）', placeholder: '例：a=2, b=3' },
+    { state: expEquation, set: setExpEquation, label: '③ 立式（任意）', placeholder: '例：2x + 3 = 7' },
+    { state: expAnswer, set: setExpAnswer, label: '④ 答え（必須）', placeholder: '例：x = 2' },
+    { state: expCheck, set: setExpCheck, label: '⑤ 検算（任意）', placeholder: '例：2×2+3=7 ✓' },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -175,10 +234,28 @@ function PracticeForm({ contentId, onSaved, onClose }: { contentId: string; onSa
           <SubQuestionEditor subs={subQuestions} onChange={setSubQuestions} />
         </div>
       ) : (
-        <div>
-          <label style={labelStyle}>正解（1行1パターン）</label>
-          <textarea value={acceptedAnswers} onChange={e => setAcceptedAnswers(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} placeholder={'x=-1\n-1'} />
-        </div>
+        <>
+          <div>
+            <label style={labelStyle}>正解（1行1パターン）</label>
+            <textarea value={acceptedAnswers} onChange={e => setAcceptedAnswers(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} placeholder={'x=-1\n-1'} />
+          </div>
+          {/* 解説 */}
+          <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: 500, color: '#374151' }}>
+            <input type="checkbox" checked={hasExplanation} onChange={e => setHasExplanation(e.target.checked)} />
+            解説を設定する（正解時に自動表示）
+          </label>
+          {hasExplanation && (
+            <div style={{ padding: 14, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#0369a1' }}>解説（記入例）</div>
+              {expFields.map(({ state, set, label, placeholder }) => (
+                <div key={label}>
+                  <label style={{ ...labelStyle, fontSize: 11 }}>{label}</label>
+                  <textarea value={state} onChange={e => set(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical', fontSize: 12 }} placeholder={placeholder} />
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       <div>
@@ -213,7 +290,7 @@ function TestSetForm({ contentId, setIndex, phase, onSaved, onClose }: { content
   const [acceptedAnswers, setAcceptedAnswers] = useState<Record<string, string>>({ A: '', B: '', C: '' });
   // 小問設定: グループごとに独立
   const [hasSubQMap, setHasSubQMap] = useState<Record<string, boolean>>({ A: false, B: false, C: false });
-  const [subQMap, setSubQMap] = useState<Record<string, SubQDraft[]>>({ A: [{ body: '', acceptedAnswers: '' }], B: [{ body: '', acceptedAnswers: '' }], C: [{ body: '', acceptedAnswers: '' }] });
+  const [subQMap, setSubQMap] = useState<Record<string, SubQDraft[]>>({ A: [emptySubQ()], B: [emptySubQ()], C: [emptySubQ()] });
   const [answerMode, setAnswerMode] = useState<'staged' | 'simple'>('staged');
   const [allowAttachment, setAllowAttachment] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -251,6 +328,12 @@ function TestSetForm({ contentId, setIndex, phase, onSaved, onClose }: { content
             order: i,
             body: s.body.trim(),
             accepted_answers: s.acceptedAnswers.split('\n').map((x: string) => x.trim()).filter(Boolean),
+            has_explanation: s.hasExplanation,
+            exp_understanding: s.expUnderstanding || null,
+            exp_extraction: s.expExtraction || null,
+            exp_equation: s.expEquation || null,
+            exp_answer: s.expAnswer || null,
+            exp_check: s.expCheck || null,
           })) : [],
         })),
         answer_mode: answerMode,

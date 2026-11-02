@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { CheckCircle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { CheckCircle, XCircle, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 
 const KaTeXRenderer = dynamic(() => import('@/components/KaTeXRenderer'), { ssr: false });
 
@@ -32,9 +32,19 @@ interface AnswerState {
   check: string;
 }
 
-interface SubResult {
+interface ExplanationData {
+  exp_understanding: string | null;
+  exp_extraction: string | null;
+  exp_equation: string | null;
+  exp_answer: string | null;
+  exp_check: string | null;
+}
+
+interface AnswerResult {
   is_correct: boolean;
   message?: string;
+  explanation?: ExplanationData;
+  explanation_unlocked?: boolean;
 }
 
 const emptyAnswer = (): AnswerState => ({
@@ -57,7 +67,92 @@ const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4,
 };
 
-// Single answer form (staged or direct)
+// ─── Explanation panel ────────────────────────────────────────────────────────
+function ExplanationPanel({ exp, mode }: { exp: ExplanationData; mode: string }) {
+  const stages = mode === 'staged' ? [
+    { key: 'exp_understanding' as const, label: '① 問題の理解' },
+    { key: 'exp_extraction' as const, label: '② 情報の整理' },
+    { key: 'exp_equation' as const, label: '③ 立式' },
+    { key: 'exp_answer' as const, label: '④ 答え' },
+    { key: 'exp_check' as const, label: '⑤ 検算' },
+  ] : [
+    { key: 'exp_answer' as const, label: '答え' },
+  ];
+
+  const filledStages = stages.filter(s => exp[s.key]);
+
+  if (filledStages.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 14, padding: '14px 16px', background: '#f0f9ff', border: '0.5px solid #bae6fd', borderRadius: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, color: '#0369a1', fontSize: 13, marginBottom: 12 }}>
+        <BookOpen size={14} />
+        解説・記入例
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {filledStages.map(({ key, label }) => (
+          <div key={key} style={{ background: '#fff', borderRadius: 8, padding: '10px 12px', border: '0.5px solid #e0f2fe' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#0369a1', marginBottom: 4 }}>{label}</div>
+            <div style={{ fontSize: 13, color: '#1e293b' }}>
+              <KaTeXRenderer content={exp[key]!} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Unlock explanation button ────────────────────────────────────────────────
+function UnlockExplanationButton({ questionId, subQuestionId, mode, onUnlocked }: {
+  questionId: string;
+  subQuestionId?: string;
+  mode: string;
+  onUnlocked: (exp: ExplanationData) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  // Fetch explanation by logging the view
+  const handleUnlock = async () => {
+    setLoading(true);
+    // Log the view
+    await fetch(`/api/questions/${questionId}/explanation-view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subQuestionId ? { sub_question_id: subQuestionId } : {}),
+    });
+    // Re-fetch: we need to get explanation data. We'll use a dedicated endpoint.
+    // Actually the explanation data isn't sent back from the view endpoint.
+    // We'll re-submit a dummy request — instead, we store the explanation
+    // from the first unlock signal and get it from the answer route.
+    // Since we can't re-request here without re-answering, we use a special GET.
+    const res = await fetch(`/api/questions/${questionId}/explanation?${subQuestionId ? `sub_question_id=${subQuestionId}` : ''}`, {
+      method: 'GET',
+    });
+    setLoading(false);
+    if (res.ok) {
+      const data = await res.json();
+      onUnlocked(data.explanation);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleUnlock}
+      disabled={loading}
+      style={{
+        marginTop: 12, padding: '8px 16px', fontSize: 13, fontWeight: 500,
+        background: '#fff', color: '#0369a1', border: '1px solid #bae6fd',
+        borderRadius: 8, cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+        display: 'flex', alignItems: 'center', gap: 6, opacity: loading ? 0.7 : 1,
+      }}
+    >
+      <BookOpen size={14} />
+      {loading ? '読み込み中...' : '解説を見る（3回不正解のため閲覧可）'}
+    </button>
+  );
+}
+
+// ─── Single answer form (staged or direct) ────────────────────────────────────
 function AnswerForm({
   mode, state, onChange, onSubmit, submitting,
 }: {
@@ -112,7 +207,7 @@ function AnswerForm({
   );
 }
 
-// One sub-question block
+// ─── One sub-question block ────────────────────────────────────────────────────
 function SubQuestionBlock({
   sub, index, mode, questionId, show_feedback, onFirstAnswer,
 }: {
@@ -125,8 +220,9 @@ function SubQuestionBlock({
 }) {
   const [state, setState] = useState<AnswerState>(emptyAnswer());
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<SubResult | null>(null);
+  const [result, setResult] = useState<AnswerResult | null>(null);
   const [answered, setAnswered] = useState(false);
+  const [explanation, setExplanation] = useState<ExplanationData | null>(null);
 
   const handleChange = (field: keyof AnswerState, value: string) => {
     setState(prev => ({ ...prev, [field]: value }));
@@ -141,8 +237,11 @@ function SubQuestionBlock({
     });
     setSubmitting(false);
     if (!res.ok) return;
-    const data = await res.json();
+    const data: AnswerResult = await res.json();
     setResult(data);
+    if (data.is_correct && data.explanation) {
+      setExplanation(data.explanation);
+    }
     if (!answered) { setAnswered(true); onFirstAnswer(); }
   };
 
@@ -176,6 +275,23 @@ function SubQuestionBlock({
               {result.is_correct ? '正解です！' : '不正解です'}
             </div>
             {result.message && <div style={{ marginTop: 6, fontSize: 13, color: '#374151' }}><KaTeXRenderer content={result.message} /></div>}
+            {/* 正解 → 解説表示 */}
+            {result.is_correct && explanation && (
+              <ExplanationPanel exp={explanation} mode={mode} />
+            )}
+            {/* 3回以上不正解 → 解説閲覧ボタン */}
+            {!result.is_correct && result.explanation_unlocked && !explanation && (
+              <UnlockExplanationButton
+                questionId={questionId}
+                subQuestionId={sub.id}
+                mode={mode}
+                onUnlocked={exp => setExplanation(exp)}
+              />
+            )}
+            {/* 解説閲覧後 */}
+            {!result.is_correct && explanation && (
+              <ExplanationPanel exp={explanation} mode={mode} />
+            )}
             <button onClick={reset} style={{ marginTop: 10, fontSize: 12, color: '#6b7280', background: 'none', border: '0.5px solid #d1d5db', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
               もう一度解く
             </button>
@@ -197,8 +313,9 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
   // For main question (no sub-questions)
   const [state, setState] = useState<AnswerState>(emptyAnswer());
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ is_correct: boolean; message?: string } | null>(null);
+  const [result, setResult] = useState<AnswerResult | null>(null);
   const [answered, setAnswered] = useState(false);
+  const [explanation, setExplanation] = useState<ExplanationData | null>(null);
 
   // Track how many sub-questions have been answered (for onAnswered callback)
   const [answeredSubCount, setAnsweredSubCount] = useState(0);
@@ -221,15 +338,17 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
     });
     setSubmitting(false);
     if (!res.ok) { setError('送信に失敗しました'); return; }
-    const data = await res.json();
+    const data: AnswerResult = await res.json();
     setResult(data);
+    if (data.is_correct && data.explanation) {
+      setExplanation(data.explanation);
+    }
     if (!answered) { setAnswered(true); onAnswered?.(); }
   };
 
   const handleSubFirstAnswer = () => {
     const newCount = answeredSubCountRef.current + 1;
     setAnsweredSubCount(newCount);
-    // Call onAnswered on first sub-question answered
     if (newCount === 1) onAnswered?.();
   };
 
@@ -310,6 +429,22 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
                 {result.is_correct ? '正解です！' : '不正解です'}
               </div>
               {result.message && <div style={{ marginTop: 8, fontSize: 13, color: '#374151' }}><KaTeXRenderer content={result.message} /></div>}
+              {/* 正解 → 解説自動表示 */}
+              {result.is_correct && explanation && (
+                <ExplanationPanel exp={explanation} mode={question.answer_mode} />
+              )}
+              {/* 3回以上不正解 → 解説閲覧ボタン */}
+              {!result.is_correct && result.explanation_unlocked && !explanation && (
+                <UnlockExplanationButton
+                  questionId={questionId}
+                  mode={question.answer_mode}
+                  onUnlocked={exp => setExplanation(exp)}
+                />
+              )}
+              {/* 解説閲覧後 */}
+              {!result.is_correct && explanation && (
+                <ExplanationPanel exp={explanation} mode={question.answer_mode} />
+              )}
               <button
                 onClick={() => { setResult(null); setState(emptyAnswer()); }}
                 style={{ marginTop: 12, fontSize: 12, color: '#6b7280', background: 'none', border: '0.5px solid #d1d5db', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
