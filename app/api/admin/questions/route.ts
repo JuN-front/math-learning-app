@@ -18,7 +18,8 @@ interface ExplanationPayload {
 // POST /api/questions/[id]/answer
 // Body for direct/staged question: { understanding?, extraction?, equation?, answer, check? }
 // Body for sub-question:           { sub_question_id, understanding?, extraction?, equation?, answer, check? }
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { params } = context;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
