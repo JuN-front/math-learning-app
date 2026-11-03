@@ -92,7 +92,7 @@ export async function POST(
         answer,
         check: body.check ?? null,
         is_correct,
-        started_at: null,
+        started_at: body.started_at ? new Date(body.started_at) : null,
       },
     });
 
@@ -134,7 +134,7 @@ export async function POST(
       answer,
       check: body.check ?? null,
       is_correct,
-      started_at: null,
+      started_at: body.started_at ? new Date(body.started_at) : null,
     },
   });
 

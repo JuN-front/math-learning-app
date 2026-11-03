@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 
@@ -67,6 +67,78 @@ const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4,
 };
 
+// ─── ログ送信ユーティリティ ────────────────────────────────────────────────────
+function sendLog(event: string, payload: Record<string, unknown>, contentId?: string) {
+  const body = JSON.stringify({
+    events: [{
+      event,
+      contentId,
+      payload,
+      client_time: new Date().toISOString(),
+    }],
+  });
+  // sendBeacon が使えればそちらを優先（ページ離脱時も確実に送れる）
+  if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+    navigator.sendBeacon('/api/logs', new Blob([body], { type: 'application/json' }));
+  } else {
+    fetch('/api/logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  }
+}
+
+// ─── フォーカス離脱フック ──────────────────────────────────────────────────────
+function useFocusTracking(questionId: string, isActive: boolean) {
+  const blurCountRef = useRef(0);
+  const blurStartRef = useRef<number | null>(null);
+  const totalBlurMsRef = useRef(0);
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    const handleBlur = () => {
+      blurStartRef.current = Date.now();
+      blurCountRef.current += 1;
+      sendLog('focus_blur', {
+        question_id: questionId,
+        blur_count: blurCountRef.current,
+      });
+    };
+
+    const handleFocus = () => {
+      if (blurStartRef.current !== null) {
+        const duration_ms = Date.now() - blurStartRef.current;
+        totalBlurMsRef.current += duration_ms;
+        blurStartRef.current = null;
+        sendLog('focus_return', {
+          question_id: questionId,
+          duration_ms,
+          total_blur_ms: totalBlurMsRef.current,
+          blur_count: blurCountRef.current,
+        });
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        handleBlur();
+      } else {
+        handleFocus();
+      }
+    };
+
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [questionId, isActive]);
+
+  return { blurCountRef, totalBlurMsRef };
+}
+
 // ─── Explanation panel ────────────────────────────────────────────────────────
 function ExplanationPanel({ exp, mode }: { exp: ExplanationData; mode: string }) {
   const stages = mode === 'staged' ? [
@@ -80,7 +152,6 @@ function ExplanationPanel({ exp, mode }: { exp: ExplanationData; mode: string })
   ];
 
   const filledStages = stages.filter(s => exp[s.key]);
-
   if (filledStages.length === 0) return null;
 
   return (
@@ -111,20 +182,14 @@ function UnlockExplanationButton({ questionId, subQuestionId, mode, onUnlocked }
   onUnlocked: (exp: ExplanationData) => void;
 }) {
   const [loading, setLoading] = useState(false);
-  // Fetch explanation by logging the view
+
   const handleUnlock = async () => {
     setLoading(true);
-    // Log the view
     await fetch(`/api/questions/${questionId}/explanation-view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(subQuestionId ? { sub_question_id: subQuestionId } : {}),
     });
-    // Re-fetch: we need to get explanation data. We'll use a dedicated endpoint.
-    // Actually the explanation data isn't sent back from the view endpoint.
-    // We'll re-submit a dummy request — instead, we store the explanation
-    // from the first unlock signal and get it from the answer route.
-    // Since we can't re-request here without re-answering, we use a special GET.
     const res = await fetch(`/api/questions/${questionId}/explanation?${subQuestionId ? `sub_question_id=${subQuestionId}` : ''}`, {
       method: 'GET',
     });
@@ -154,37 +219,51 @@ function UnlockExplanationButton({ questionId, subQuestionId, mode, onUnlocked }
 
 // ─── Single answer form (staged or direct) ────────────────────────────────────
 function AnswerForm({
-  mode, state, onChange, onSubmit, submitting,
+  mode, state, onChange, onSubmit, submitting, questionId, subQuestionId,
 }: {
   mode: string;
   state: AnswerState;
   onChange: (field: keyof AnswerState, value: string) => void;
   onSubmit: () => void;
   submitting: boolean;
+  questionId: string;
+  subQuestionId?: string;
 }) {
   const canSubmit = state.answer.trim().length > 0 && !submitting;
+
+  // コピペ検知
+  const handlePaste = useCallback((field: keyof AnswerState, e: React.ClipboardEvent) => {
+    const pasted = e.clipboardData.getData('text');
+    sendLog('paste_detected', {
+      question_id: questionId,
+      sub_question_id: subQuestionId ?? null,
+      field,
+      pasted_length: pasted.length,
+    });
+  }, [questionId, subQuestionId]);
+
   if (mode === 'staged') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
           <label style={labelStyle}>① 問題の理解（何を求めるか）</label>
-          <textarea value={state.understanding} onChange={e => onChange('understanding', e.target.value)} style={inputStyle} placeholder="例：xの値を求める" />
+          <textarea value={state.understanding} onChange={e => onChange('understanding', e.target.value)} onPaste={e => handlePaste('understanding', e)} style={inputStyle} placeholder="例：xの値を求める" />
         </div>
         <div>
           <label style={labelStyle}>② 情報の整理（わかっていること）</label>
-          <textarea value={state.extraction} onChange={e => onChange('extraction', e.target.value)} style={inputStyle} placeholder="例：a=2, b=3" />
+          <textarea value={state.extraction} onChange={e => onChange('extraction', e.target.value)} onPaste={e => handlePaste('extraction', e)} style={inputStyle} placeholder="例：a=2, b=3" />
         </div>
         <div>
           <label style={labelStyle}>③ 方程式・式の立式</label>
-          <textarea value={state.equation} onChange={e => onChange('equation', e.target.value)} style={inputStyle} placeholder="例：2x + 3 = 7" />
+          <textarea value={state.equation} onChange={e => onChange('equation', e.target.value)} onPaste={e => handlePaste('equation', e)} style={inputStyle} placeholder="例：2x + 3 = 7" />
         </div>
         <div>
           <label style={labelStyle}>④ 答え <span style={{ color: '#ef4444' }}>*</span></label>
-          <textarea value={state.answer} onChange={e => onChange('answer', e.target.value)} style={inputStyle} placeholder="例：x = 2" />
+          <textarea value={state.answer} onChange={e => onChange('answer', e.target.value)} onPaste={e => handlePaste('answer', e)} style={inputStyle} placeholder="例：x = 2" />
         </div>
         <div>
           <label style={labelStyle}>⑤ 検算・確認</label>
-          <textarea value={state.check} onChange={e => onChange('check', e.target.value)} style={inputStyle} placeholder="例：2×2+3=7 ✓" />
+          <textarea value={state.check} onChange={e => onChange('check', e.target.value)} onPaste={e => handlePaste('check', e)} style={inputStyle} placeholder="例：2×2+3=7 ✓" />
         </div>
         <button onClick={onSubmit} disabled={!canSubmit}
           style={{ padding: '9px 18px', background: '#0f1c2e', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: canSubmit ? 'pointer' : 'not-allowed', opacity: canSubmit ? 1 : 0.6, fontFamily: 'inherit' }}>
@@ -193,11 +272,12 @@ function AnswerForm({
       </div>
     );
   }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div>
         <label style={labelStyle}>答えを入力 <span style={{ color: '#ef4444' }}>*</span></label>
-        <textarea value={state.answer} onChange={e => onChange('answer', e.target.value)} style={inputStyle} placeholder="答えを入力してください" />
+        <textarea value={state.answer} onChange={e => onChange('answer', e.target.value)} onPaste={e => handlePaste('answer', e)} style={inputStyle} placeholder="答えを入力してください" />
       </div>
       <button onClick={onSubmit} disabled={!canSubmit}
         style={{ padding: '9px 18px', background: '#0f1c2e', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: canSubmit ? 'pointer' : 'not-allowed', opacity: canSubmit ? 1 : 0.6, fontFamily: 'inherit' }}>
@@ -223,8 +303,13 @@ function SubQuestionBlock({
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [answered, setAnswered] = useState(false);
   const [explanation, setExplanation] = useState<ExplanationData | null>(null);
+  const startedAtRef = useRef<string | null>(null);
 
+  // 最初に入力が始まったタイミングで started_at を記録
   const handleChange = (field: keyof AnswerState, value: string) => {
+    if (!startedAtRef.current && value.length > 0) {
+      startedAtRef.current = new Date().toISOString();
+    }
     setState(prev => ({ ...prev, [field]: value }));
   };
 
@@ -233,7 +318,11 @@ function SubQuestionBlock({
     const res = await fetch(`/api/questions/${questionId}/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sub_question_id: sub.id, ...state }),
+      body: JSON.stringify({
+        sub_question_id: sub.id,
+        ...state,
+        started_at: startedAtRef.current,
+      }),
     });
     setSubmitting(false);
     if (!res.ok) return;
@@ -245,7 +334,11 @@ function SubQuestionBlock({
     if (!answered) { setAnswered(true); onFirstAnswer(); }
   };
 
-  const reset = () => { setResult(null); setState(emptyAnswer()); };
+  const reset = () => {
+    setResult(null);
+    setState(emptyAnswer());
+    startedAtRef.current = null;
+  };
 
   return (
     <div style={{ border: '0.5px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 12 }}>
@@ -260,7 +353,6 @@ function SubQuestionBlock({
       </div>
 
       <div style={{ padding: '14px 16px' }}>
-        {/* Sub body */}
         <div style={{ marginBottom: 14, padding: '10px 14px', background: '#fafafa', borderRadius: 8, border: '0.5px solid #e5e7eb', fontSize: 13 }}>
           <KaTeXRenderer content={sub.body} />
         </div>
@@ -275,29 +367,25 @@ function SubQuestionBlock({
               {result.is_correct ? '正解です！' : '不正解です'}
             </div>
             {result.message && <div style={{ marginTop: 6, fontSize: 13, color: '#374151' }}><KaTeXRenderer content={result.message} /></div>}
-            {/* 正解 → 解説表示 */}
-            {result.is_correct && explanation && (
-              <ExplanationPanel exp={explanation} mode={mode} />
-            )}
-            {/* 3回以上不正解 → 解説閲覧ボタン */}
+            {result.is_correct && explanation && <ExplanationPanel exp={explanation} mode={mode} />}
             {!result.is_correct && result.explanation_unlocked && !explanation && (
-              <UnlockExplanationButton
-                questionId={questionId}
-                subQuestionId={sub.id}
-                mode={mode}
-                onUnlocked={exp => setExplanation(exp)}
-              />
+              <UnlockExplanationButton questionId={questionId} subQuestionId={sub.id} mode={mode} onUnlocked={exp => setExplanation(exp)} />
             )}
-            {/* 解説閲覧後 */}
-            {!result.is_correct && explanation && (
-              <ExplanationPanel exp={explanation} mode={mode} />
-            )}
+            {!result.is_correct && explanation && <ExplanationPanel exp={explanation} mode={mode} />}
             <button onClick={reset} style={{ marginTop: 10, fontSize: 12, color: '#6b7280', background: 'none', border: '0.5px solid #d1d5db', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
               もう一度解く
             </button>
           </div>
         ) : (
-          <AnswerForm mode={mode} state={state} onChange={handleChange} onSubmit={handleSubmit} submitting={submitting} />
+          <AnswerForm
+            mode={mode}
+            state={state}
+            onChange={handleChange}
+            onSubmit={handleSubmit}
+            submitting={submitting}
+            questionId={questionId}
+            subQuestionId={sub.id}
+          />
         )}
       </div>
     </div>
@@ -317,9 +405,15 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
   const [answered, setAnswered] = useState(false);
   const [explanation, setExplanation] = useState<ExplanationData | null>(null);
 
+  // started_at: 最初に入力が始まったタイミングで記録
+  const startedAtRef = useRef<string | null>(null);
+
   // Track how many sub-questions have been answered (for onAnswered callback)
   const [answeredSubCount, setAnsweredSubCount] = useState(0);
   const answeredSubCountRef = { current: answeredSubCount };
+
+  // フォーカス離脱検知（問題が展開されている間だけ有効）
+  useFocusTracking(questionId, expanded);
 
   useEffect(() => {
     fetch(`/api/questions/${questionId}`)
@@ -328,13 +422,30 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
       .catch(() => { setError('問題の取得に失敗しました'); setLoading(false); });
   }, [questionId]);
 
+  // 問題展開時にログ
+  useEffect(() => {
+    if (expanded && question) {
+      sendLog('question_opened', { question_id: questionId });
+    }
+  }, [expanded, question, questionId]);
+
+  const handleMainChange = (field: keyof AnswerState, value: string) => {
+    if (!startedAtRef.current && value.length > 0) {
+      startedAtRef.current = new Date().toISOString();
+    }
+    setState(prev => ({ ...prev, [field]: value }));
+  };
+
   const handleMainSubmit = async () => {
     if (!question) return;
     setSubmitting(true);
     const res = await fetch(`/api/questions/${questionId}/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(state),
+      body: JSON.stringify({
+        ...state,
+        started_at: startedAtRef.current,
+      }),
     });
     setSubmitting(false);
     if (!res.ok) { setError('送信に失敗しました'); return; }
@@ -398,7 +509,6 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
       {/* Body */}
       {expanded && (
         <div style={{ padding: '20px', borderTop: '0.5px solid #fde68a' }}>
-          {/* Main question body */}
           <div style={{ marginBottom: 16, padding: '14px 16px', background: '#fafafa', borderRadius: 8, border: '0.5px solid #e5e7eb' }}>
             <KaTeXRenderer content={question.body} />
           </div>
@@ -407,7 +517,6 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
           )}
 
           {hasSubQ ? (
-            /* Sub-questions */
             <div>
               {question.sub_questions.map((sub, i) => (
                 <SubQuestionBlock
@@ -422,43 +531,31 @@ export default function QuestionCard({ questionId, onAnswered }: Props) {
               ))}
             </div>
           ) : result ? (
-            /* Main result */
             <div style={{ padding: '14px 16px', borderRadius: 8, background: result.is_correct ? '#f0fdf4' : '#fef2f2', border: `0.5px solid ${result.is_correct ? '#bbf7d0' : '#fecaca'}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: result.is_correct ? '#15803d' : '#dc2626', fontSize: 14 }}>
                 {result.is_correct ? <CheckCircle size={16} /> : <XCircle size={16} />}
                 {result.is_correct ? '正解です！' : '不正解です'}
               </div>
               {result.message && <div style={{ marginTop: 8, fontSize: 13, color: '#374151' }}><KaTeXRenderer content={result.message} /></div>}
-              {/* 正解 → 解説自動表示 */}
-              {result.is_correct && explanation && (
-                <ExplanationPanel exp={explanation} mode={question.answer_mode} />
-              )}
-              {/* 3回以上不正解 → 解説閲覧ボタン */}
+              {result.is_correct && explanation && <ExplanationPanel exp={explanation} mode={question.answer_mode} />}
               {!result.is_correct && result.explanation_unlocked && !explanation && (
-                <UnlockExplanationButton
-                  questionId={questionId}
-                  mode={question.answer_mode}
-                  onUnlocked={exp => setExplanation(exp)}
-                />
+                <UnlockExplanationButton questionId={questionId} mode={question.answer_mode} onUnlocked={exp => setExplanation(exp)} />
               )}
-              {/* 解説閲覧後 */}
-              {!result.is_correct && explanation && (
-                <ExplanationPanel exp={explanation} mode={question.answer_mode} />
-              )}
+              {!result.is_correct && explanation && <ExplanationPanel exp={explanation} mode={question.answer_mode} />}
               <button
-                onClick={() => { setResult(null); setState(emptyAnswer()); }}
+                onClick={() => { setResult(null); setState(emptyAnswer()); startedAtRef.current = null; }}
                 style={{ marginTop: 12, fontSize: 12, color: '#6b7280', background: 'none', border: '0.5px solid #d1d5db', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
                 もう一度解く
               </button>
             </div>
           ) : (
-            /* Main answer form */
             <AnswerForm
               mode={question.answer_mode}
               state={state}
-              onChange={(field, value) => setState(prev => ({ ...prev, [field]: value }))}
+              onChange={handleMainChange}
               onSubmit={handleMainSubmit}
               submitting={submitting}
+              questionId={questionId}
             />
           )}
         </div>
